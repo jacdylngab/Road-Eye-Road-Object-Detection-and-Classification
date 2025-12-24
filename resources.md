@@ -1,0 +1,13 @@
+# RESOURCES
+
+- [Data Preprocessing](https://docs.ultralytics.com/guides/preprocessing_annotated_data/)
+- [Intersection over Union (IoU)](https://www.ultralytics.com/glossary/intersection-over-union-iou)
+- [Non-Maximum Suppression (NMS)](https://www.ultralytics.com/glossary/non-maximum-suppression-nms)
+- [Anchor-Based Detectors](https://www.ultralytics.com/glossary/anchor-based-detectors)
+- [Detection Head](https://www.ultralytics.com/glossary/detection-head)
+- [Backbone](https://www.ultralytics.com/glossary/backbone)
+- [Object Detection Architectures](https://www.ultralytics.com/glossary/object-detection-architectures)
+- [Enhance Your Dataset to Train YOLO11 Using Albumentations](https://docs.ultralytics.com/integrations/albumentations/)
+- [Datasets & DataLoaders](https://docs.pytorch.org/tutorials/beginner/basics/data_tutorial.html)
+- [Transfer Learning for Computer Vision Tutorial](https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html)
+- [Writing Custom Datasets, DataLoaders and Transforms](https://docs.pytorch.org/tutorials/beginner/data_loading_tutorial.html)
