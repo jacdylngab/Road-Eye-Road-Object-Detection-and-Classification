@@ -11,3 +11,4 @@
 - [Datasets & DataLoaders](https://docs.pytorch.org/tutorials/beginner/basics/data_tutorial.html)
 - [Transfer Learning for Computer Vision Tutorial](https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html)
 - [Writing Custom Datasets, DataLoaders and Transforms](https://docs.pytorch.org/tutorials/beginner/data_loading_tutorial.html)
+- [TorchVision Object Detection Finetuning Tutorial](https://docs.pytorch.org/tutorials/intermediate/torchvision_tutorial.html)
