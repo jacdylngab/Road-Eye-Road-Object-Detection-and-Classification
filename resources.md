@@ -12,3 +12,6 @@
 - [Transfer Learning for Computer Vision Tutorial](https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html)
 - [Writing Custom Datasets, DataLoaders and Transforms](https://docs.pytorch.org/tutorials/beginner/data_loading_tutorial.html)
 - [TorchVision Object Detection Finetuning Tutorial](https://docs.pytorch.org/tutorials/intermediate/torchvision_tutorial.html)
+- [Choosing Augmentations for Model Generalization](https://albumentations.ai/docs/3-basic-usage/choosing-augmentations/)
+- [Data Augmentation in Object Detection](https://medium.com/@abhishekjainindore24/data-augmentation-in-object-detection-5c8ac110a9ba)
+- [Bounding Box Augmentation for Object Detection](https://albumentations.ai/docs/3-basic-usage/bounding-boxes-augmentations/)
