@@ -3,6 +3,7 @@ import json
 from torch.utils.data import Dataset
 from pathlib import Path
 from torchvision.io import read_image
+import numpy as np
 
 class BDD100KDataset(Dataset):
     def __init__(self, images_dir, labels_dir, transform=None):
@@ -52,7 +53,7 @@ class BDD100KDataset(Dataset):
                 - "labels" (Tensor[N]): Class labels for each bounding box.
         """
         # Load images and labels
-        image_path = self.images_dir / self.images_files[idx]
+        image_path = self.images_files[idx]
         labels_path = self.labels_dir / f"{image_path.stem}.json"
         image = read_image(image_path)
 
@@ -86,6 +87,15 @@ class BDD100KDataset(Dataset):
         }
     
         if self.transform:
-            image, target = self.transform(image, target)
+            image_np = image.permute(1, 2, 0).numpy() # H x W x C
+            transformed = self.transform(
+                image=image_np,
+                bboxes=target["boxes"].tolist(),
+                labels=target["labels"].tolist()
+            )
+
+            image = transformed["image"]
+            target["boxes"] = transformed["bboxes"]
+            target["labels"] = transformed["labels"]
         
         return image, target

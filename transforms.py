@@ -5,7 +5,7 @@ from albumentations.pytorch import ToTensorV2
 train_transform = A.Compose([
     A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
         height=360, 
-        wigth=640
+        width=640
     ), 
     A.HorizontalFlip(p=0.5),
     A.RandomBrightnessContrast(
@@ -23,7 +23,7 @@ train_transform = A.Compose([
         p=0.2
     ),
     A.GaussNoise(
-        var_limit=(5.0, 15.0), 
+        std_range=(0.009, 0.015), 
         per_channel=True, 
         p=0.2
     ),
@@ -37,17 +37,27 @@ train_transform = A.Compose([
         std=[0.229, 0.224, 0.225]
     ),
     ToTensorV2()
-])
+],
+bbox_params=A.BboxParams(
+    format="pascal_voc",
+    label_fields=["labels"],
+    min_visibility=0.2
+))
 
 # Validation / Test augmentations
 val_transform = A.Compose([
     A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
         height=360, 
-        wigth=640
+        width=640
     ), 
     A.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225]
     ),
     ToTensorV2()
-])
+],
+bbox_params=A.BboxParams(
+    format="pascal_voc",
+    label_fields=["labels"],
+    min_visibility=0.2
+))
