@@ -21,3 +21,7 @@
 - [YOLO Object Detection Explained](https://www.datacamp.com/blog/yolo-object-detection-explained)
 - [Anchor-Free Detectors](https://www.ultralytics.com/glossary/anchor-free-detectorshttps://www.ultralytics.com/glossary/anchor-free-detectors)
 - [FCOS- Anchor Free Object Detection Explained](https://learnopencv.com/fcos-anchor-free-object-detection-explained/)
+- [CenterNet: Objects as Points – Anchor Free Object Detection Explained](https://learnopencv.com/centernet-anchor-free-object-detection-explained/)
+- [Feature extraction for model inspection](https://docs.pytorch.org/vision/stable/feature_extraction.html)
+- [resnet50](https://docs.pytorch.org/vision/main/models/generated/torchvision.models.resnet50.html#torchvision.models.ResNet50_Weights)
+- [resnet.py](https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py)
