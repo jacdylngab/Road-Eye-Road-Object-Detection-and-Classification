@@ -25,6 +25,9 @@ bdd100k_dataset_trans = BDD100KDataset(images_dir=images_train, labels_dir=image
 num_images = 4
 dataset_size = len(bdd100k_dataset_orig)
 
+if dataset_size == 0:
+    raise RuntimeError("Dataset is empty - check dataset path on server")
+
 # Randomly sample 4 unique indices
 indices = random.sample(range(dataset_size), num_images)
 
@@ -54,4 +57,5 @@ for i, idx in enumerate(indices):
     axes[1, i].axis("off")
 
 plt.tight_layout()
-plt.show()
+plt.savefig("visualization_test.png")
+print("Plot saved at visualization_test.png")
