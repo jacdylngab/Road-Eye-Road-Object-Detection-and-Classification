@@ -48,7 +48,8 @@ for i, idx in enumerate(indices):
 
     # Plot transformed
     image_display = denormalize(image_trans, mean=np.array([0.485, 0.456, 0.406]), std=np.array([0.229, 0.224, 0.225]))
-    axes[1, i].imshow(image_display)
+    #axes[1, i].imshow(image_display)
+    axes[1, i].imshow(image_trans)
     axes[1, i].set_title("Transformed")
     axes[1, i].axis("off")
 
