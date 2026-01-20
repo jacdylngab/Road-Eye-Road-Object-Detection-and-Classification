@@ -25,3 +25,6 @@
 - [Feature extraction for model inspection](https://docs.pytorch.org/vision/stable/feature_extraction.html)
 - [resnet50](https://docs.pytorch.org/vision/main/models/generated/torchvision.models.resnet50.html#torchvision.models.ResNet50_Weights)
 - [resnet.py](https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py)
+- [How To Design An Object Detector Part 2: Designing Neck](https://medium.com/@taylan.ates417311/how-to-design-an-object-detector-part-2-designing-neck-c920998fc732)
+- [Feature Pyramid Network (FPN)](https://www.ultralytics.com/glossary/feature-pyramid-network-fpn)
+- [torchvision/ops/feature_pyramid_network.py](https://github.com/pytorch/vision/blob/main/torchvision/ops/feature_pyramid_network.py)
