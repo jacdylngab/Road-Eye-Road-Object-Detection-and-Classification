@@ -28,3 +28,6 @@
 - [How To Design An Object Detector Part 2: Designing Neck](https://medium.com/@taylan.ates417311/how-to-design-an-object-detector-part-2-designing-neck-c920998fc732)
 - [Feature Pyramid Network (FPN)](https://www.ultralytics.com/glossary/feature-pyramid-network-fpn)
 - [torchvision/ops/feature_pyramid_network.py](https://github.com/pytorch/vision/blob/main/torchvision/ops/feature_pyramid_network.py)
+
+
+ REMEMBER TO PUT FORMAL QUOTATION WHEN YOU ARE DONE! LIKE QUOTE ACTUAL PAPERS!
