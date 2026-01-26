@@ -35,6 +35,9 @@ class FPN(nn.Module):
             self.channel_align_convs.append(channel_align_conv)
             self.output_fpn_convs.append(output_fpn_conv)
 
+        # Add extra pyramid level P6 (layer5) (downsample P5 (layer 4))
+        self.layer5 = nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=1, bias=False)
+
         # Initialize all convolution weights and biases in the FPN/neck
         # - We use Kaiming uniform initialization for weights to keep signals stable
         #   and help training converge faster.
@@ -122,6 +125,11 @@ class FPN(nn.Module):
             upsampled_top_down = F.interpolate(current_top_down, size=feat_shape, mode="nearest")
             current_top_down = current_lateral + upsampled_top_down
             results.insert(0, self.get_result_from_output_fpn_convs(current_top_down, idx))
+
+        # Add extra pyramid level for capturing large objects
+        layer5 = self.layer5(results[-1])
+        names.append("layer5")
+        results.append(layer5)
         
         # Transform the results into an ordered dict
         out = OrderedDict(zip(names, results))
