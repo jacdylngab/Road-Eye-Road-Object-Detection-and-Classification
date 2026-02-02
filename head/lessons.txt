@@ -1,0 +1,211 @@
+I like this analogy chatgpt gave me:
+
+FCOS does not select good predictions.
+It defines correct behavior and lets gradients do the rest.
+
+Forward: “Here’s my guess”
+get_targets: “Here’s the answer key”
+Loss: “How wrong are you?”
+Backprop: “Adjust everything slightly”
+Repeat × millions → detector.
+
+FCOS never removes predictions — it teaches every point what it should be responsible for, and lets the loss shape behavior over time.
+
+FORWARD:
+  Every point predicts (cls, box, centerness)
+
+GET_TARGETS:
+  For each point:
+    → class target (foreground or background)
+    → box target (or dummy)
+    → centerness target (foreground only)
+
+LOSS:
+  Background points:
+    → classification loss only
+
+  Foreground points:
+    → classification + box + centerness loss
+
+BACKPROP:
+  Update shared weights
+
+REPEAT
+
+No point ever disappears.
+
+===========================================================================================================================================================================
+
+why does each fpn level points have a specific range of points to predict on?
+
+Each FPN level only predicts objects within a certain size range because different feature map resolutions are good at different object scales.
+
+| Level | Stride | Feature map     | Sees           |
+| ----- | ------ | --------------- | -------------- |
+| P3    | 8      | High resolution | Small details  |
+| P4    | 16     | Medium          | Medium objects |
+| P5    | 32     | Low resolution  | Big objects    |
+
+Now ask yourself:
+
+Should a 7×7 feature map cell try to predict a tiny stop sign?
+No — it physically can’t localize it well.
+
+Should a 56×56 feature map cell predict a huge truck?
+Also no — it has too small a receptive field.
+
+So FCOS enforces:
+👉 Right object size → right feature scale
+
+Why this matters specifically for FCOS
+
+FCOS is anchor-free:
+No predefined box sizes
+No anchor matching by IoU
+
+So without size constraints:
+The same object could be predicted on multiple levels
+Training becomes noisy and unstable
+Many points compete to predict the same box
+
+
+Regression ranges solve this cleanly.
+
+===========================================================================================================================================================================
+
+What this code block help achieve:
+        areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (
+            gt_bboxes[:, 3] - gt_bboxes[:, 1])
+        # TODO: figure out why these two are different
+        # areas = areas[None].expand(num_points, num_gts)
+        areas = areas[None].repeat(num_points, 1)
+        regress_ranges = regress_ranges[:, None, :].expand(
+            num_points, num_gts, 2)
+        gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
+        xs, ys = points[:, 0], points[:, 1]
+        xs = xs[:, None].expand(num_points, num_gts)
+        ys = ys[:, None].expand(num_points, num_gts)
+
+        left = xs - gt_bboxes[..., 0]
+        right = gt_bboxes[..., 2] - xs
+        top = ys - gt_bboxes[..., 1]
+        bottom = gt_bboxes[..., 3] - ys
+        bbox_targets = torch.stack((left, top, right, bottom), -1)
+
+For ONE image:
+. We have:
+    num_points = number of feature map locations (all pyramid levels combined)
+    num_gts = number of ground-truth boxes in this image
+. We want to compare every point to every Ground Truth box
+
+So the whole goal is:
+    Convert everything into shape [num_points, num_gts, …]
+    so we can do vectorized comparisons.
+
+Line by line comments
+1️⃣ Compute GT box areas
+areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (
+         gt_bboxes[:, 3] - gt_bboxes[:, 1])
+
+What it does
+gt_bboxes shape: [num_gts, 4]
+Format: [x1, y1, x2, y2]
+
+This computes:
+width  = x2 - x1
+height = y2 - y1
+area   = width * height
+
+Result
+areas.shape = [num_gts]
+
+2️⃣ Repeat areas for every point
+areas = areas[None].repeat(num_points, 1)
+
+Step-by-step
+areas[None] → shape [1, num_gts]
+.repeat(num_points, 1) → copy it num_points times
+
+Result
+areas.shape = [num_points, num_gts]
+
+📌 Meaning:
+Every point now has access to the area of every GT box.
+
+3️⃣ Expand regression ranges
+regress_ranges = regress_ranges[:, None, :].expand(
+    num_points, num_gts, 2)
+
+Before
+regress_ranges.shape = [num_points, 2]
+# each point has a (min_dist, max_dist)
+
+After
+regress_ranges.shape = [num_points, num_gts, 2]
+
+📌 Meaning:
+For every (point, GT box) pair, we know the allowed regression distance range.
+
+4️⃣ Expand GT boxes
+gt_bboxes = gt_bboxes[None].expand(num_points, num_gts, 4)
+
+Before
+gt_bboxes.shape = [num_gts, 4]
+
+After
+gt_bboxes.shape = [num_points, num_gts, 4]
+
+📌 Meaning:
+Every point is paired with every GT box.
+
+5️⃣ Extract x and y coordinates of points
+xs, ys = points[:, 0], points[:, 1]
+
+Before
+points.shape = [num_points, 2]
+
+After
+xs.shape = [num_points]
+ys.shape = [num_points]
+
+📌 These are actual pixel locations on the image / feature map.
+
+6️⃣ Expand xs and ys
+xs = xs[:, None].expand(num_points, num_gts)
+ys = ys[:, None].expand(num_points, num_gts)
+
+Result
+
+xs.shape = [num_points, num_gts]
+ys.shape = [num_points, num_gts]
+
+📌 Meaning:
+Every GT box now sees the same point coordinate.
+
+Big picture (what we have now)
+
+Everything is aligned:
+| Tensor           | Shape                      |
+| ---------------- | -------------------------- |
+| `xs, ys`         | `[num_points, num_gts]`    |
+| `gt_bboxes`      | `[num_points, num_gts, 4]` |
+| `areas`          | `[num_points, num_gts]`    |
+| `regress_ranges` | `[num_points, num_gts, 2]` |
+
+==============================================================================================================================
+
+🧠 Concept 1: Why center sampling exists
+
+Without center sampling:
+Every point inside a box can be positive
+That’s a lot of points, including noisy edge points
+
+With center sampling:
+Only points near the center of the object are allowed
+Makes training more stable
+
+So instead of:
+“Is point inside the box?”
+
+We ask:
+“Is point inside a smaller center region of the box?”

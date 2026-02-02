@@ -23,6 +23,7 @@ class BDD100KDataset(Dataset):
         self.images_files = sorted(self.images_dir.glob("*.jpg"))
 
         self.category_to_idx = {
+            # 'background': 0
             "bus": 1,
             "traffic light": 2,
             "traffic sign": 3,
