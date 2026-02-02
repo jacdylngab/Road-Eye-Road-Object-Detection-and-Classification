@@ -229,6 +229,8 @@ class FCOSHead(nn.Module):
                                  ) -> Tuple[Tensor, Tensor]:
         # Compute regression, classification, and centerness targets for points in a single images
         # TODO: You need to come back to this and make sure you understand the tensor shapes, bounding box calculations, and the center calculations!
+        # YOU NEED TO COME BACK TO THIS CODE AND MAKE SURE YOU UNDERSTAND IT. CAPICHE
+
         num_points = points.size(0)
         num_ground_truths = len(ground_truth_instances)
         ground_truth_bounding_boxes = ground_truth_instances["boxes"]
@@ -236,7 +238,7 @@ class FCOSHead(nn.Module):
 
         # If there no ground truth objects as in no objects to detect
         # The labels are going to be background here the background is 0
-        # The bounding box targets are going to be zeros lie (0, 0, 0, 0)
+        # The bounding box targets are going to be zeros like (0, 0, 0, 0)
 
         if num_ground_truths == 0:
             return (
@@ -285,7 +287,7 @@ class FCOSHead(nn.Module):
 
             # Create empty tensor to store stride values. This builds a stride-scaled center region
             # For example, a point at P5 (Layer 5) represents a bigger area of the image, so its center window must be larger
-            stride = center_xs.new_zeros(center_xs.shape)
+            stride = center_x.new_zeros(center_x.shape)
 
             # Assign stride per FPN level
             lvl_begin = 0
@@ -325,7 +327,7 @@ class FCOSHead(nn.Module):
         # Not using center sampling. Like here as long as the box is in ground truth box
         else:
             # If all four distances are positive, the point is inside.
-            inside_gt_bbox_mask = bounding_box_targets.mim(-1)[0] > 0
+            inside_gt_bbox_mask = bounding_box_targets.min(-1)[0] > 0
 
         # Regression range filtering. Limit the regression range for each location
         max_regress_distance = bounding_box_targets.max(-1)[0] 
@@ -355,7 +357,7 @@ class FCOSHead(nn.Module):
     def get_targets(self,
                     points: List[Tensor],
                     batch_ground_truth_instances: List[GroundTruth]
-    ):
+                    ) -> Tuple[List[Tensor], List[Tensor]]:
         # Gets/computes the features responsible for predicting an object. 
         # Not all objects can predict an object
         # Compute regression, classification, and centerness targets for points in multiple images
@@ -379,10 +381,55 @@ class FCOSHead(nn.Module):
         # The number of points per level (fpn level: layer1, layer2, layer3, layer4, layer5)
         num_points = [point.size(0) for point in points]
 
+        # Get the labels and bounding box targets of each image.
+        labels_list: List[Tensor] = []
+        bounding_box_targets_list: List[Tensor] = []
+
+        for ground_truth_instances in batch_ground_truth_instances:
+            # Get targets for this single image (all levels concatenated)
+            labels, bounding_box_targets = self.get_targets_single_image(
+                ground_truth_instances=ground_truth_instances,
+                points=concat_points,
+                regress_ranges=concat_regress_ranges,
+                num_points_per_level=num_points)
+            
+            # Split targets by pyramid (fpn) leve level. We do this because loss is computed per level so we have de concatenate (I don't know if that is a word)
+            labels_list.append(labels.split(num_points, 0))
+            bounding_box_targets_list.append(bounding_box_targets.split(num_points, 0))
+
+        # For training and loss functions we need to go because the detection head outputs predictions per level shaped like: level → (batch × points)
+        # So for level i, the model predicts 
+        # cls_scores[i]  # shape: [B * n_i, C]
+        # bbox_preds[i]  # shape: [B * n_i, 4]
+        # To compute loss, targets must match that shape.
+
+        # From: [image0[lvl0, lvl1, lvl2], image1[lvl0, lvl1, lvl2]]
+        # To: [lvl0[img0, img1], lvl1[img0, img1], lvl2[img0, img1]]
+        # To achieve this we will concatenate per level image
+
+        concat_lvl_labels: List[Tensor] = []
+        concat_lv_bounding_box_targets: List[Tensor] = []
+        for i in range(num_levels):
+            concat_lvl_labels.append(
+                torch.cat([labels[i] for labels in labels_list])
+            )
+            bounding_box_targets = torch.cat(
+                [bounding_box_targets[i] for bounding_box_targets in bounding_box_targets_list]
+            )
+
+            # Normalize bbox targets by stride of this level. Helps in training
+            bounding_box_targets = bounding_box_targets / self.strides[i]
+
+            concat_lv_bounding_box_targets.append(bounding_box_targets)
+        
+        return concat_lvl_labels, concat_lv_bounding_box_targets
+
     def loss(self,
              classification_scores: List[Tensor],
              bounding_box_predictions: List[Tensor],
-             centerness_predictions: List[Tensor]):
+             centerness_predictions: List[Tensor],
+             batch_ground_truth_instances: List[GroundTruth]
+             ):
 
         # Calculate the loss based on the features extracted by the detection head
 
@@ -394,5 +441,6 @@ class FCOSHead(nn.Module):
             dtype=bounding_box_predictions[0].dtype,
             device=bounding_box_predictions[0].device 
         )
-        labels, bounding_box_targets = self.get_targets()
+        labels, bounding_box_targets = self.get_targets(points=all_level_points, 
+                                                        batch_ground_truth_instances=batch_ground_truth_instances)
          
