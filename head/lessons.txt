@@ -209,3 +209,132 @@ So instead of:
 
 We ask:
 “Is point inside a smaller center region of the box?”
+
+=====================================================================================================================================
+
+in the loss function
+
+num_imgs = cls_scores[0].size(0)
+# flatten cls_scores, bbox_preds and centerness
+flatten_cls_scores = [
+    cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels)
+    for cls_score in cls_scores
+]
+flatten_bbox_preds = [
+    bbox_pred.permute(0, 2, 3, 1).reshape(-1, 4)
+    for bbox_pred in bbox_preds
+]
+flatten_centerness = [
+    centerness.permute(0, 2, 3, 1).reshape(-1)
+    for centerness in centernesses
+]
+flatten_cls_scores = torch.cat(flatten_cls_scores)
+flatten_bbox_preds = torch.cat(flatten_bbox_preds)
+flatten_centerness = torch.cat(flatten_centerness)
+flatten_labels = torch.cat(labels)
+flatten_bbox_targets = torch.cat(bbox_targets)
+# repeat points to align with bbox_preds
+flatten_points = torch.cat(
+    [points.repeat(num_imgs, 1) for points in all_level_points])
+
+
+# We flatten because 
+# Loss functions don’t care about FPN levels, images, or grids.
+# They want one long list of predictions and one long list of targets.
+#  For each point in the entire batch:
+#       predict (class, box, centerness)
+# So we need: total_points = sum_over_levels(N × H × W)
+# The shape will be [total_points, C]
+
+# permute(0, 2, 3, 1) turns this [N, C, H, W] to this [N, H, W, C]
+# Why do we permute?
+# Because now:
+# Each spatial location has its own C-vector
+# Memory layout matches “one prediction per point”
+
+# .reshape(-1, self.cls_out_channels) turns this [N, H, W, C] to this [N × H × W, C]
+# Meaning:
+
+# Every row = one point
+# Columns = class logits
+
+# This is the fundamental FCOS unit:
+# one row = one point prediction
+
+# Same logic applies to:
+
+# BBox predictions
+# [N, 4, H, W] → [N × H × W, 4]
+
+# Centerness
+# [N, 1, H, W] → [N × H × W]
+
+6️⃣ Why flatten ACROSS LEVELS?
+
+You do this per level:
+
+flatten_cls_scores = [ ... for cls_score in cls_scores ]
+torch.cat(flatten_cls_scores)
+
+Now you get:
+[sum_over_levels(N × H_l × W_l), C]
+
+This means:
+All pyramid levels
+All images
+All points
+→ one big table
+
+Exactly what the loss wants.
+
+7️⃣ Why flatten labels and bbox targets too?
+
+Targets were built per level, per image to match predictions.
+
+So:
+
+flatten_labels = torch.cat(labels)
+flatten_bbox_targets = torch.cat(bbox_targets)
+
+
+Now:
+
+Tensor	Row meaning
+flatten_cls_scores[i]	class prediction for point i
+flatten_labels[i]	GT class for point i
+flatten_bbox_preds[i]	predicted distances
+flatten_bbox_targets[i]	GT distances
+
+Row-wise alignment is EVERYTHING.
+
+8️⃣ Why repeat points with num_imgs?
+flatten_points = torch.cat(
+    [points.repeat(num_imgs, 1) for points in all_level_points]
+)
+
+
+Key fact:
+all_level_points[l] contains points for ONE image
+But predictions are [N × H × W]
+
+So we repeat:
+points → points for image 1
+points → points for image 2
+...
+points → points for image N
+
+Now:
+flatten_points.shape == flatten_bbox_preds.shape
+
+This is needed for decoding boxes later.
+
+
+=====================================================================================================================================
+
+All points on feature map:
+ ┌─────────────┐
+ │ Background  │ ← used for classification only
+ └─────────────┘
+ ┌─────────────┐
+ │ Foreground  │ ← used for classification, bbox, centerness
+ └─────────────┘

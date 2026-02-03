@@ -23,17 +23,16 @@ class BDD100KDataset(Dataset):
         self.images_files = sorted(self.images_dir.glob("*.jpg"))
 
         self.category_to_idx = {
-            # 'background': 0
-            "bus": 1,
-            "traffic light": 2,
-            "traffic sign": 3,
-            "person": 4,
-            "bike": 5,
-            "truck": 6,
-            "motor": 7,
-            "car": 8,
-            "train": 9,
-            "rider": 10
+            "bus": 0,
+            "traffic light": 1,
+            "traffic sign": 2,
+            "person": 3,
+            "bike": 4,
+            "truck": 5,
+            "motor": 6,
+            "car": 7,
+            "train": 8,
+            "rider": 9
         }
     
     def __len__(self):
