@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Sequence, Tuple, List, Dict
 from torch import Tensor
-from mmdet.models.losses import FocalLoss, IoULoss
+#from mmdet.models.losses import FocalLoss, IoULoss
 
 INF = 1e8
 
@@ -147,15 +147,17 @@ class FCOSHead(nn.Module):
         return classification_score, bounding_box_prediction, centerness_prediction
     
 
-    def forward(self, feats: Tuple[Tensor]) -> Tuple[List[Tensor], List[Tensor], List[Tensor]]:
+    def forward(self, featmaps: Dict[str, Tensor]) -> Tuple[List[Tensor], List[Tensor], List[Tensor]]:
         """
         Docstring for forward
         
         :param self: Description
-        :param feats: Features from the upstream network, each is
-                a 4D-tensor.
+        :param featmaps: Features from the upstream network, FPN outputs
         :type x: Tuple[Tensor]
         """
+
+        # Unpack the dict
+        feats = tuple(featmaps.values())
 
         classification_scores: List[Tensor] = []
         bounding_box_predictions: List[Tensor] = []
