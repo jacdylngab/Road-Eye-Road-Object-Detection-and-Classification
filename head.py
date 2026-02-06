@@ -1,12 +1,13 @@
+from typing import Sequence, Tuple, List, Dict
 import torch
 import torch.nn as nn
-from typing import Sequence, Tuple, List, Dict
 from torch import Tensor
-#from mmdet.models.losses import FocalLoss, IoULoss
+import torch.nn.functional as F
+from torchvision.ops import sigmoid_focal_loss, generalized_box_iou_loss
 
 INF = 1e8
 
-GroundTruth = Dict[str, torch.Tensor]
+GroundTruth = Dict[str, Tensor]
 
 class FCOSHead(nn.Module):
     """
@@ -40,13 +41,6 @@ class FCOSHead(nn.Module):
         self.strides = strides
         self.center_sampling = center_sampling
         self.center_sample_radius = center_sample_radius
-        self.loss_classification = FocalLoss( # Classification Loss that answers what the object is. It Downweight easy examples (background) and focus on hard ones
-            use_sigmoid=True, # used for multi-label classification
-            gamma=2.0, # How hard we downweight easy examples
-            alpha=0.25, # Balance positives vs negatives
-            loss_weight=1.0 # It is a multiplier. Controls how much the loss contributes to the final loss
-        )
-        self.loss_bounding_box = IoULoss(loss_weight=1.0) # Regression loss that answers where the object is. How much do the predicted box and GT box overlap
         self.loss_centerness = nn.BCEWithLogitsLoss() # Centerness loss to find the best center on the object. Center points produce better bounding. While edge points produce bad boxes
 
         self.initialize_head_layers()
@@ -242,7 +236,7 @@ class FCOSHead(nn.Module):
 
         num_points = points.size(0)
         num_ground_truths = len(ground_truth_instances)
-        ground_truth_bounding_boxes = ground_truth_instances["boxes"]
+        ground_truth_bounding_boxes = ground_truth_instances["bboxes"]
         ground_truth_labels = ground_truth_instances["labels"]
 
         # If there no ground truth objects as in no objects to detect
@@ -556,12 +550,27 @@ class FCOSHead(nn.Module):
         num_positive = torch.tensor(len(positive_indices), dtype=torch.float, device=bounding_box_predictions[0].device)
         num_positive = max(float(num_positive), 1.0) # Helps avoid division by 0 when doing loss calculations
 
-        # Compute classification loss
-        loss_classification = self.loss_classification(
-            flatten_classification_scores, # Shape [num_points_total, num_classes]
-            flatten_label_targets, # shape [num_points_total], background = num_classes
-            avg_factor=num_positive # Normalizes the loss
+        # Convert target labels shape to match the input shape and change that to one hot code
+        target_one_hot = F.one_hot(
+            flatten_label_targets.clamp(max=self.num_classes - 1),
+            num_classes=self.num_classes
+        ).float()
+
+        # Zero-out background rows
+        bg_mask = flatten_label_targets == self.num_classes
+        target_one_hot[bg_mask] = 0
+
+        # Classification Loss that answers what the object is. It Downweight easy examples (background) and focus on hard ones
+        loss_classification = sigmoid_focal_loss(  # used for multi-label classification
+            inputs=flatten_classification_scores,
+            targets=target_one_hot, 
+            gamma=2.0, # How hard we downweight easy examples
+            alpha=0.25, # Balance positives vs negatives
+            reduction="sum"
         )
+
+        # Normalize the classification loss by the number of positives
+        loss_classification /= num_positive
 
         # Pick only the positive points
         positive_bounding_box_predictions = flatten_bounding_box_predictions[positive_indices]
@@ -582,12 +591,12 @@ class FCOSHead(nn.Module):
                                                                                    positive_bounding_box_distances=positive_bounding_box_predictions)
             positive_decoded_bounding_box_targets = self.decode_bounding_boxes(positive_points=positive_points, 
                                                                                    positive_bounding_box_distances=positive_bounding_box_targets)
-            loss_bounding_box = self.loss_bounding_box(
+            loss_bounding_box = generalized_box_iou_loss(
                 positive_decoded_bounding_box_predictions,
-                positive_decoded_bounding_box_targets,
-                weight=positive_centerness_targets,
-                avg_factor=centerness_denorm
+                positive_decoded_bounding_box_targets
             )
+
+            loss_bounding_box = (loss_bounding_box * positive_centerness_targets).sum() / centerness_denorm
 
             loss_centerness = self.loss_centerness(
                 positive_centerness_predictions,

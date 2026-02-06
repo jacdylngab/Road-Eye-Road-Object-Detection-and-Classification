@@ -1,0 +1,37 @@
+1️⃣ First — what Focal Loss actually is (conceptually)
+You already know BCE:
+    BCE(pt) = -log(pt)
+where:
+pt = p if the label is 1
+pt = 1 - p if the label is 0
+
+Problem in detection
+
+In detection:
+    MOST anchors are easy negatives
+    Few are positives
+    BCE is dominated by easy examples
+
+Focal Loss idea
+Add a modulating factor:
+    FL(pt) = -α(1-pt)^γ.log(pt​)
+
+Two new pieces:
+✅ Gamma (γ)
+Reduces loss for easy samples.
+    easy example -> pt ≈ 1
+    (1 - pt)^γ ≈ 0
+    loss shrinks
+
+Hard samples stay large.
+
+✅ Alpha (α)
+Balances class imbalance.
+
+
+self.loss_classification = FocalLoss( # Classification Loss that answers what the object is. It Downweight easy examples (background) and focus on hard ones
+    use_sigmoid=True, # used for multi-label classification
+    gamma=2.0, # How hard we downweight easy examples
+    alpha=0.25, # Balance positives vs negatives
+    loss_weight=1.0 # It is a multiplier. Controls how much the loss contributes to the final loss
+)
