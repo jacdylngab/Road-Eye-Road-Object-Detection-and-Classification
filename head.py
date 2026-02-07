@@ -41,7 +41,7 @@ class FCOSHead(nn.Module):
         self.strides = strides
         self.center_sampling = center_sampling
         self.center_sample_radius = center_sample_radius
-        self.loss_centerness = nn.BCEWithLogitsLoss() # Centerness loss to find the best center on the object. Center points produce better bounding. While edge points produce bad boxes
+        self.loss_centerness = nn.BCEWithLogitsLoss(reduction="sum") # Centerness loss to find the best center on the object. Center points produce better bounding. While edge points produce bad boxes
 
         self.initialize_head_layers()
     
@@ -111,7 +111,6 @@ class FCOSHead(nn.Module):
         :rtype: Tuple[Tensor, Tensor, Tensor]
         """
 
-        
         classification_feat = x
         regression_feat = x
 
@@ -235,9 +234,9 @@ class FCOSHead(nn.Module):
         # YOU NEED TO COME BACK TO THIS CODE AND MAKE SURE YOU UNDERSTAND IT. CAPICHE
 
         num_points = points.size(0)
-        num_ground_truths = len(ground_truth_instances)
         ground_truth_bounding_boxes = ground_truth_instances["bboxes"]
         ground_truth_labels = ground_truth_instances["labels"]
+        num_ground_truths = len(ground_truth_labels)
 
         # If there no ground truth objects as in no objects to detect
         # The labels are going to be background here the background is 0
@@ -265,7 +264,7 @@ class FCOSHead(nn.Module):
         ground_truth_bounding_boxes = ground_truth_bounding_boxes[None].expand(num_points, num_ground_truths, 4)
 
         # Extract x and y coordinates of points
-        x, y = points[:, 0], points[: 1]
+        x, y = points[:, 0], points[:, 1]
 
         # Expand x and y 
         x = x[:, None].expand(num_points, num_ground_truths)
@@ -375,7 +374,10 @@ class FCOSHead(nn.Module):
 
         # Expand regression ranges to align with points at their specific level
         # Each FPN level only predicts objects within a certain size range because different feature map resolutions are good at different object scales.
-        expanded_regress_ranges = [points[i].new_tensor(self.regress_ranges[i])[None].expand_as(points[i] for i in range(num_levels))]
+        expanded_regress_ranges = [
+            points[i].new_tensor(self.regress_ranges[i])[None].expand_as(
+                points[i]) for i in range(num_levels)
+        ]
 
         # concat all level points and regress ranges
         concat_regress_ranges = torch.cat(expanded_regress_ranges, dim=0)
@@ -474,8 +476,8 @@ class FCOSHead(nn.Module):
         x, y = positive_points[:, 0], positive_points[:, 1]
 
         # # Split distances
-        l, t, r, b = positive_bounding_box_distances[:, 0], positive_bounding_box_distances[: 1], \
-                     positive_bounding_box_distances[: 2], positive_bounding_box_distances[:, 3]
+        l, t, r, b = positive_bounding_box_distances[:, 0], positive_bounding_box_distances[:, 1], \
+                     positive_bounding_box_distances[:, 2], positive_bounding_box_distances[:, 3]
         
         # Compute corners
         x0 = x - l
@@ -499,7 +501,7 @@ class FCOSHead(nn.Module):
 
         # Sanity Check
         assert len(classification_scores) == len(bounding_box_predictions) == len(centerness_predictions)
-        featmap_sizes = [featmap[-2:] for featmap in classification_scores]
+        featmap_sizes = [(featmap.shape[2], featmap.shape[3]) for featmap in classification_scores]
         all_level_points = self.grid_priors(
             featmap_sizes=featmap_sizes,
             dtype=bounding_box_predictions[0].dtype,
@@ -601,8 +603,10 @@ class FCOSHead(nn.Module):
             loss_centerness = self.loss_centerness(
                 positive_centerness_predictions,
                 positive_centerness_targets,
-                avg_factor=num_positive
             )
+
+            # Normalize the centerness loss by the number of positives
+            loss_centerness /= num_positive
         
         else:
             # No positive points

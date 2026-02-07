@@ -1,0 +1,142 @@
+Trying to understand tensor shapes.
+
+understanding how tensor shapes and what tensor shapes will be returned by forward.
+
+Input Shape to forward()
+Your featmaps contains features from different FPN levels. Each feature map has shape:
+    [B, C, H, W] where B=batch size, C=channels, H=height, W=width
+
+Different FPN levels have different spatial dimensions (H, W) but typically the same number of channels.
+
+Processing Through forward_fpn_level
+For a single FPN level with input x of shape [B, C, H, W]:
+1. After classification convolutions: [B, C, H, W] → the stacked convs maintain spatial dimensions but may change channels
+2. After conv_classification: [B, num_classes, H, W] - predicting class scores at each spatial location
+3. After regression convolutions: [B, C, H, W] → similar to classification branch
+4. After conv_regression: [B, 4, H, W] - predicting 4 values (l, t, r, b) for bounding box at each location
+5. After conv_centerness: [B, 1, H, W] - predicting centerness score at each location
+
+Final Output Shapes
+The forward method returns three lists, where each list has one tensor per FPN level:
+classification_scores: List of tensors, each with shape [B, num_classes, H_i, W_i]
+bounding_box_predictions: List of tensors, each with shape [B, 4, H_i, W_i]
+centerness_predictions: List of tensors, each with shape [B, 1, H_i, W_i]
+
+The subscript i indicates that different FPN levels have different spatial dimensions. For example, with 5 FPN levels (P3-P7), you might have:
+P3: [B, _, H/4, W/4]
+P4: [B, _, H/8, W/8]
+P5: [B, _, H/16, W/16]
+P6: [B, _, H/32, W/32]
+P7: [B, _, H/64, W/64]
+
+Each spatial location (h, w) in these feature maps represents a potential object detection at that position in the original image (scaled by the stride).
+
+
+
+Initial Inputs to loss()
+Starting with the outputs from the forward pass:
+classification_scores: List of 5 tensors (one per FPN level)
+    Each: [B, num_classes, H_i, W_i]
+bounding_box_predictions: List of 5 tensors
+    Each: [B, 4, H_i, W_i]
+centerness_predictions: List of 5 tensors
+    Each: [B, 1, H_i, W_i]
+
+Grid Points Generation
+all_level_points = self.grid_priors(featmap_sizes, ...)
+all_level_points: List of 5 tensors
+    all_level_points[i]: [H_i × W_i, 2] - xy coordinates for each spatial location at level i
+    Example: If P3 is 100×100, then all_level_points[0] is [10000, 2]
+
+Target Assignment
+label_targets: List of 5 tensors
+    Each: [B × H_i × W_i] - class label for each point (or num_classes for background)
+bounding_box_targets: List of 5 tensors
+    Each: [B × H_i × W_i, 4] - target distances (l, t, r, b) for each point
+
+The Big Flatten
+flatten_classification_scores = [
+    cls.permute(0, 2, 3, 1).reshape(-1, self.num_classes) for cls in classification_scores
+]
+Breaking down the transformation:
+For a single level with shape [B, num_classes, H, W]:
+.permute(0, 2, 3, 1) → [B, H, W, num_classes] (channels last)
+.reshape(-1, num_classes) → [B × H × W, num_classes] (flatten spatial + batch)
+
+After concatenating all levels:
+flatten_classification_scores: [total_points, num_classes]
+    where total_points = B × (H₁×W₁ + H₂×W₂ + H₃×W₃ + H₄×W₄ + H₅×W₅)
+flatten_bounding_box_predictions: [total_points, 4]
+flatten_centerness_predictions: [total_points] (squeezed)
+flatten_label_targets: [total_points]
+flatten_bounding_box_targets: [total_points, 4]
+flatten_points: [total_points, 2]
+
+flatten_points = torch.cat([points.repeat(num_imgs, 1) for points in all_level_points])
+```
+- Each level's points are repeated B times (once per image in batch)
+
+## Example with Numbers
+
+Let's say you have:
+- Batch size B = 2
+- 5 FPN levels with spatial dimensions: 100×100, 50×50, 25×25, 13×13, 7×7
+- num_classes = 80
+
+**Total points:**
+```
+total_points = 2 × (10000 + 2500 + 625 + 169 + 49) = 2 × 13343 = 26686
+
+Shapes after flattening:
+    flatten_classification_scores: [26686, 80]
+    flatten_bounding_box_predictions: [26686, 4]
+    flatten_centerness_predictions: [26686]
+    flatten_label_targets: [26686]
+    flatten_bounding_box_targets: [26686, 4]
+    flatten_points: [26686, 2]
+
+Filtering Positives
+positive_indices = ((flatten_label_targets >= 0) & 
+                   (flatten_label_targets < background_index)).nonzero().reshape(-1)
+positive_indices: [num_pos] - indices of foreground points only
+    Typical num_pos might be 50-500 depending on how many objects are in your batch
+
+After indexing positives:
+positive_bounding_box_predictions: [num_pos, 4]
+positive_centerness_predictions: [num_pos]
+positive_bounding_box_targets: [num_pos, 4]
+positive_points: [num_pos, 2]
+
+positive_decoded_bounding_box_predictions = self.decode_bounding_boxes(
+    positive_points, positive_bounding_box_predictions
+)
+Input to decode:
+    positive_points: [num_pos, 2] - center coordinates
+    positive_bounding_box_distances: [num_pos, 4] - (l, t, r, b)
+Output:
+    decoded_boxes: [num_pos, 4] - (x0, y0, x1, y1) in absolute coordinates
+
+Loss Computation Shapes
+Classification Loss:
+Input predictions: [26686, 80]
+Input targets (one-hot): [26686, 80]
+Output: scalar
+
+Bounding Box Loss:
+Input predictions: [num_pos, 4] (decoded)
+Input targets: [num_pos, 4] (decoded)
+Per-box IoU loss: [num_pos]
+Weighted by centerness: [num_pos] × [num_pos] → [num_pos]
+Final: scalar (after .sum() / centerness_denorm)
+
+Centerness Loss:
+Input predictions: [num_pos]
+Input targets: [num_pos]
+Output: scalar
+
+Key Insight
+The flattening step transforms the problem from:
+    Spatial view: "What does this FPN level predict at location (h, w)?"
+
+To:
+    Point view: "For each of the 26,686 points, what is predicted vs. what should be predicted?"
