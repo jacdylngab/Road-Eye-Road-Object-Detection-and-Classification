@@ -1,0 +1,77 @@
+I got this error:
+
+Traceback (most recent call last):
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/training.py", line 45, in <module>
+    for images, targets in train_loader:
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 741, in __next__
+    data = self._next_data()
+           ^^^^^^^^^^^^^^^^^
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 801, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/_utils/fetch.py", line 57, in fetch
+    return self.collate_fn(data)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/_utils/collate.py", line 401, in default_collate
+    return collate(batch, collate_fn_map=default_collate_fn_map)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/_utils/collate.py", line 215, in collate
+    collate(samples, collate_fn_map=collate_fn_map)
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/_utils/collate.py", line 172, in collate
+    key: collate(
+         ^^^^^^^^
+  File "/home/jacques/Documents/Capstone Project/Road-Eye-Road-Object-Detection-and-Classification/env/lib/python3.12/site-packages/torch/utils/data/_utils/collate.py", line 208, in collate
+    raise RuntimeError("each element in list of batch should be of equal size")
+RuntimeError: each element in list of batch should be of equal size
+
+Here is the explanation of what it means (answer from claude)
+This error means the default collate function can't stack your data because samples have different sizes. This is very common in object detection because:
+    Different images have different numbers of objects
+    Bounding boxes vary in quantity per image
+    Image 1 might have 5 objects, Image 2 might have 12 objects
+
+Solution is to create a custom collate function to so that labels and bbox match before collating
+def detection_collate_fn(batch):
+    """
+    Custom collate function for object detection.
+    Handles variable number of objects per image.
+    """
+    images = []
+    targets = []
+    
+    for sample in batch:
+        images.append(sample[0])  # image
+        targets.append(sample[1])  # target (boxes, labels, etc.)
+    
+    # Stack images into a batch tensor
+    images = torch.stack(images, dim=0)
+    
+    # Keep targets as a list (can't stack due to variable sizes)
+    return images, targets
+
+# Use it in your DataLoader
+train_loader = torch.utils.data.DataLoader(
+    dataset=bdd100k_dataset_train,
+    batch_size=2,
+    shuffle=True,
+    collate_fn=detection_collate_fn  # Add this!
+)
+
+validation_loader = torch.utils.data.DataLoader(
+    dataset=bdd100k_dataset_validation,
+    batch_size=2,
+    shuffle=False,
+    collate_fn=detection_collate_fn  # Add this!
+)
+
+
+What This Does:
+Before (default collate): Tries to stack everything into tensors
+
+Images: [B, C, H, W] ✅ works (all same size)
+Targets: [B, N, 4] ❌ fails (N varies per image)
+
+After (custom collate):
+
+Images: torch.Tensor of shape [B, C, H, W]
+Targets: list of length B, where each element can have different sizes

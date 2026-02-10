@@ -1,0 +1,33 @@
+# Iteration 1
+for images, targets in train_loader:
+    losses = model(images, targets)  # Forward with CURRENT weights
+    total_loss = sum(losses.values())  # Loss: 198.88
+    
+    optimizer.zero_grad()  # Clear old gradients
+    total_loss.backward()  # Calculate gradients (how to improve)
+    optimizer.step()       # UPDATE WEIGHTS using gradients
+    
+    # ← Weights are NOW different/better!
+
+# Iteration 2 (same loop, next batch)
+for images, targets in train_loader:
+    losses = model(images, targets)  # Forward with UPDATED weights
+    total_loss = sum(losses.values())  # Loss: 179.08 (lower!)
+    
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()       # UPDATE WEIGHTS again
+    
+    # ← Weights improved again!
+
+# Iteration 3...
+
+The Learning Cycle:
+
+1. Forward pass with current weights → produces predictions → calculates loss
+2. Backward pass calculates gradients → "if I change weight X by this amount, loss will decrease"
+3. Optimizer step updates weights → weights become better
+4. Next iteration uses the new, improved weights → loss is (hopefully) lower
+5. Repeat!
+
+That's why the loss goes from 198 → 179 → 150 → ... → 2.7 - the model is literally getting better at each step by adjusting its weights!

@@ -72,30 +72,79 @@ class BDD100KDataset(Dataset):
 
         if boxes:
             boxes = torch.tensor(boxes, dtype=torch.float32)
-            labels = torch.tensor(labels, dtype=torch.long) 
+            labels = torch.tensor(labels, dtype=torch.long)
+
+            # Transform boxes and labels to tensors and then make the target dictionary
+            target = {
+                "bboxes": boxes, 
+                "labels": labels,
+                "image_id": torch.tensor([idx]),
+                "area": (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0]),
+                "iscrowd": torch.zeros((len(labels),), dtype=torch.int64)
+            }
+
         else:
             boxes = torch.zeros((0, 4), dtype=torch.float32)
-            labels = torch.zeros((0,), dtype=torch.long) 
+            labels = torch.zeros((0,), dtype=torch.long)
 
-        # Transform boxes and labels to tensors and then make the target dictionary
-        target = {
-            "boxes": boxes, 
-            "labels": labels,
-            "image_id": torch.tensor([idx]),
-            "area": (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0]),
-            "iscrowd": torch.zeros((len(labels),), dtype=torch.int64)
-        }
+            # Transform boxes and labels to tensors and then make the target dictionary
+            target = {
+                "bboxes": boxes, 
+                "labels": labels,
+                "image_id": torch.tensor([idx]),
+                "area": torch.zeros((0,), dtype=torch.float32),
+                "iscrowd": torch.zeros((0,), dtype=torch.int64)
+            }
+
     
         if self.transform:
-            image_np = image.permute(1, 2, 0).numpy() # H x W x C
-            transformed = self.transform(
-                image=image_np,
-                bboxes=target["boxes"].tolist(),
-                labels=target["labels"].tolist()
-            )
+            # Filter invalid boxes before transformation
+            valid_bboxes = []
+            valid_labels = []
 
-            image = transformed["image"]
-            target["boxes"] = transformed["bboxes"]
-            target["labels"] = transformed["labels"]
+            for i, box in enumerate(target["bboxes"]):
+                x_min, y_min, x_max, y_max = box
+                # Check for valid dimensions
+                if x_max > x_min and y_max > y_min:
+                    valid_bboxes.append(box.tolist()) # Convert tensor to list
+                    valid_labels.append(target["labels"][i].item()) # Convert tensor to int
+                else:
+                    print(f"Filtering out invalid box: {box}")
+
+            # Only transform if there are valid boxes
+            if len(valid_bboxes) > 0:
+                image_np = image.permute(1, 2, 0).numpy() # H x W x C
+                transformed = self.transform(
+                    image=image_np,
+                    bboxes=valid_bboxes,
+                    labels=valid_labels
+                )
+
+                image = transformed["image"]
+
+                bboxes = transformed["bboxes"]
+
+                # Ensure boxes are always 2D [N, 4] even when there no valid box
+                if len(bboxes) == 0:
+                    target["bboxes"] = torch.zeros((0, 4), dtype=torch.float32)
+                else:
+                    target["bboxes"] = torch.tensor(transformed["bboxes"], dtype=torch.float32)
+
+                target["labels"] = torch.tensor(transformed["labels"], dtype=torch.long)
+
+                if target["bboxes"].dim() == 1:
+                    target["bboxes"] = target["bboxes"].unsqueeze(0) # [4] -> [1, 4]
+                
+                # Recompute the area and the iscrowd after the transformation and filtering
+                target["area"] = (target["bboxes"][:, 3] - target["bboxes"][:, 1]) * (target["bboxes"][:, 2] - target["bboxes"][:, 0])
+                target["iscrowd"] = torch.zeros((len(target["labels"]),), dtype=torch.int64) 
+            else:
+                # Empty case. No valid bboxes
+                target["bboxes"] = torch.zeros((0, 4), dtype=torch.float32)
+                target["labels"] = torch.zeros((0,), dtype=torch.long)
+
+                # Recompute the area and the iscrowd after the transformation and filtering
+                target["area"] = torch.zeros((0,), dtype=torch.float32) 
+                target["iscrowd"] = torch.zeros((0,), dtype=torch.int64) 
         
         return image, target

@@ -73,13 +73,17 @@ for img in range(batch_size):
         [50, 50, 120, 130]      # Object 5: small box
     ], device=device, dtype=torch.float)
 
+    print(f"bboxes: {bboxes}")
+
     # Real class labels for these 5 objects
     labels = torch.tensor([1, 2, 5, 9, 0], device=device)
+    print(f"labels: {labels}")
 
     instance = {
         "bboxes": bboxes,       # [5, 4] - 5 objects
         "labels": labels        # [5] - 5 labels
     }
+    print(f"instance: {instance}")
 
     batch_ground_truth_instances.append(instance)
 

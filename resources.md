@@ -29,6 +29,7 @@
 - [Feature Pyramid Network (FPN)](https://www.ultralytics.com/glossary/feature-pyramid-network-fpn)
 - [torchvision/ops/feature_pyramid_network.py](https://github.com/pytorch/vision/blob/main/torchvision/ops/feature_pyramid_network.py)
 - [mmdet/models/dense_heads/fcos_head.py](https://github.com/open-mmlab/mmdetection/blob/main/mmdet/models/dense_heads/fcos_head.py)
+- [Training with PyTorch](https://docs.pytorch.org/tutorials/beginner/introyt/trainingyt.html)
 
 
  REMEMBER TO PUT FORMAL QUOTATION WHEN YOU ARE DONE! LIKE QUOTE ACTUAL PAPERS!

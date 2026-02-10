@@ -19,7 +19,7 @@ train_transform = A.Compose([
         p=0.3),
     A.GaussianBlur(
         blur_limit=(3, 7),
-        sigma_limit=0,
+        sigma_limit=(0.1, 2.0),
         p=0.2
     ),
     A.GaussNoise(
@@ -41,6 +41,7 @@ train_transform = A.Compose([
 bbox_params=A.BboxParams(
     format="pascal_voc",
     label_fields=["labels"],
+    min_area=1,
     min_visibility=0.2
 ))
 
@@ -59,5 +60,6 @@ val_transform = A.Compose([
 bbox_params=A.BboxParams(
     format="pascal_voc",
     label_fields=["labels"],
+    min_area=1,
     min_visibility=0.2
 ))
