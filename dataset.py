@@ -108,8 +108,8 @@ class BDD100KDataset(Dataset):
                 if x_max > x_min and y_max > y_min:
                     valid_bboxes.append(box.tolist()) # Convert tensor to list
                     valid_labels.append(target["labels"][i].item()) # Convert tensor to int
-                else:
-                    print(f"Filtering out invalid box: {box}")
+                #else:
+                #    print(f"Filtering out invalid box: {box}")
 
             # Only transform if there are valid boxes
             if len(valid_bboxes) > 0:

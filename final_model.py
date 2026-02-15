@@ -1,4 +1,4 @@
-from torch import nn, Tensor
+from torch import nn
 from torchvision.models import resnet50, ResNet50_Weights
 from backbone import ResnetBackbone
 from neck import FPN
@@ -28,7 +28,7 @@ class FCOSDetector(nn.Module):
         fpn_features = self.neck(feat_maps) 
         classification_scores, bounding_box_predictions, centerness_predictions = self.head(fpn_features)
 
-        if self.training and targets is not None:
+        if targets is not None:
             losses = self.head.loss(
                 classification_scores=classification_scores,
                 bounding_box_predictions=bounding_box_predictions,
