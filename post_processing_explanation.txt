@@ -1,0 +1,251 @@
+Post Processing in Object Detection explanation (from ChatGPT)
+--------------------------------------------------------------
+
+Classification Post Processing
+
+1️⃣ What Does FCOS Output for Classification?
+The classification head outputs:
+cls_logits
+
+Shape per feature level:
+(batch_size, num_classes, H, W)
+
+These are logits.
+Not probabilities.
+Not confidence scores.
+Raw numbers.
+
+They can look like:
+-3.2
+0.7
+5.1
+-0.4
+
+These are unbounded real numbers
+
+2️⃣ What Is a Logit?
+A logit is just:
+    The raw output of a linear layer before converting to probability.
+Neural networks don't naturally output probabilities.
+They output real numbers.
+To turn them into probabilities, we apply an activation function.
+
+3️⃣ What Is Sigmoid?
+Sigmoid is:
+            σ(x) = 1 / (1 + e^-x)
+It maps: (-∞, +∞) → (0, 1)
+
+Example:
+| Logit | Sigmoid |
+| ----- | ------- |
+| -5    | 0.0067  |
+| 0     | 0.5     |
+| 2     | 0.88    |
+| 5     | 0.993   |
+
+So:
+prob = torch.sigmoid(logit)
+Now we have a probability
+
+4️⃣ Why FCOS Uses Sigmoid (Not Softmax)
+FCOS uses sigmoid per class, NOT softmax.
+Why?
+Because FCOS treats classification as:
+    Independent binary classification per class.
+Instead of:
+    Exactly one class per pixel.
+
+So for each spatial location: num_classes independent sigmoid scores
+That means:
+At one pixel, multiple classes could have high scores.
+(Though usually only one dominates.)
+
+5️⃣ What Classification Post-Processing Usually Does
+After forward pass:
+cls_logits = model(images)
+
+We do:
+Step 1: Apply Sigmoid
+cls_probs = torch.sigmoid(cls_logits)
+Now shape stays the same:
+(batch_size, num_classes, H, W)
+But values are between 0 and 1.
+
+Step 2: Combine with Centerness
+FCOS improves classification confidence by multiplying with centerness.
+This is because centers produce more confident predictions than edge points. 
+scores = cls_probs * torch.sigmoid(centerness)
+Now we get:
+final_score = class_prob × centerness
+This reduces low-quality edge predictions.
+
+Step 3: Flatten Spatial Locations
+We reshape from:
+(C, H, W) to (H × W, C)
+Because each spatial location is a candidate detection.
+Example:
+scores = scores.permute(0, 2, 3, 1)  # (B, H, W, C)
+scores = scores.reshape(B, -1, C)
+Now each row = one predicted location
+This is going to look like:
+location 0 → [c0, c1, c2]
+location 1 → [c0, c1, c2]
+location 2 → [c0, c1, c2]
+...
+
+Step 4: Threshold
+Typical threshold:
+keep = scores > 0.05
+Or:
+keep = scores > 0.3
+
+Anything below threshold is discared.
+Why?
+Because most predictions are background.
+Without thresholding we'd get tens of thousands of candidates
+
+6️⃣ What Is Actually Happening Conceptually?
+At each pixel:
+The model is saying:
+"I think this pixel belongs to class k with probability p."
+Post-processing says:
+"Only keep predictions where p is high enough."
+
+7️⃣ Why Sigmoid Is Critical
+Without sigmoid:
+    You’d be thresholding raw logits
+    They are not bounded
+    Thresholding would make no sense
+Sigmoid gives:
+    Stable probability interpretation
+    Comparable scores across locations
+
+8️⃣ Intuition Check
+If a logit is: 10
+Sigmoid ≈ 0.99995
+Model is extremely confident.
+If a logit is: -10
+Sigmoid ≈ 0.000045
+Model is extremely confident it's NOT that class.
+
+--------------------------------------------------------------
+
+Bounding Box Post Processing.
+
+🎯 What FCOS Actually Predicts for Boxes
+Unlike anchor-based models, FCOS does NOT predict: (x1, y1, x2, y2)
+Instead it predicts: (l, t, r, b)
+These are distances from the pixel location.
+For each spatial location, the model predicts:
+    l = distance to left side of box
+    t = distance to top
+    r = distance to right
+    b = distance to bottom
+So the bounding box tensor shape per level is: (B, 4, H, W)
+
+🧠 Important Concept
+Each spatial location corresponds to a point in the image.
+
+Let's call that point: (x_center, y_center)
+The model predicts: l, t, r, b
+So the box becomes:
+x1 = x_center - l
+y1 = y_center - t
+x2 = x_center + r
+y2 = y_center + b
+
+FCOS predicts offsets — you convert them to coordinates.
+
+🔥 Step-by-Step BBox Post Processing
+
+Step 1: Flatten bounding box predictions
+
+Similar to classification:
+From: (B, 4, H, W)
+To: (B, H*W, 4)
+Like this:
+bbox_reg = bbox_reg.permute(0, 2, 3, 1)  # (B, H, W, 4)
+bbox_reg = bbox_reg.reshape(B, -1, 4)   # (B, H*W, 4)
+
+Now each row matches the classifcation row.
+Alignment is critical.
+
+Step 2: Generate Location Coordinates
+
+We must generate the spatial grid locations.
+
+For example:
+For an 80×80 feature map with stride 8:
+Each feature location maps to:
+x = j * stride
+y = i * stride
+We then create a meshgrid of 
+(H*W, 2)
+
+Containing all (x_center, y_center) positions.
+
+Step 3: Decode l,t,r,b → x1,y1,x2,y2
+
+Given:
+locations = (N, 2)
+bbox_reg  = (N, 4)
+
+We need to compute:
+x1 = locations[:, 0] - bbox_reg[:, 0]
+y1 = locations[:, 1] - bbox_reg[:, 1]
+x2 = locations[:, 0] + bbox_reg[:, 2]
+y2 = locations[:, 1] + bbox_reg[:, 3]
+
+Then stack:
+boxes = torch.stack([x1, y1, x2, y2], dim=1)
+
+Now:
+boxes shape = (N, 4)
+
+📦 Step 4: Apply Same keep Mask
+
+keep = scores > threshold
+
+We then apply
+boxes = boxes[keep]
+scores = scores[keep]
+labels = labels[keep]
+
+🚨 Step 5: Non-Maximum Suppression (NMS)
+
+Even after thresholding, you will have overlapping boxes.
+
+We need to apply:
+torchvision.ops.nms(boxes, scores, iou_threshold)
+
+NMS:
+    Sort by score
+    Keep highest
+    Remove boxes with high IoU overlap
+    Repeat
+This removes duplicates.
+
+---------------------------------------------------------------------
+
+torchvision.ops.nms(best_bboxes, best_scores, iou_threshold=0.5)
+That runs NMS across all classes together.
+That is wrong for multi-class detection.
+
+🧠 Why Per-Class NMS Is Necessary
+Imagine:
+    Box A → dog (score 0.9)
+    Box B → person (score 0.85)
+    They overlap heavily (IoU = 0.7)
+Global NMS would:
+    Keep dog
+    Suppress person
+But that’s incorrect — both objects might be valid.
+Detectors like FCOS, YOLO, and Faster R-CNN all apply NMS per class.
+
+---------------------------------------------------------------------
+
+🎯 So This Line Does Two Things
+image_uint8 = (image * 255).to(torch.uint8)
+
+Rescales [0,1] → [0,255]
+Converts float → integer pixel type

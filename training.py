@@ -41,7 +41,7 @@ def train_one_epoch(epoch_index, train_loader, model, optimizer, tensorboard_wri
     num_batches = 0
 
     # Progress bar
-    pbar =  tqdm(train_loader, desc=f"Epoch {epoch_index+1}")
+    pbar =  tqdm(train_loader, desc=f"epoch {epoch_index+1}")
 
     # Think about using optim SGD later
     for batch_idx, (images, targets) in enumerate(pbar):

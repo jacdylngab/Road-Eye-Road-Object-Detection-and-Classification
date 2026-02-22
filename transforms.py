@@ -47,7 +47,7 @@ bbox_params=A.BboxParams(
 
 # Validation / Test augmentations
 val_transform = A.Compose([
-    A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
+    A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360
         height=360, 
         width=640
     ), 
