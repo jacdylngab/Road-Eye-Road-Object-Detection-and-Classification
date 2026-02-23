@@ -1,13 +1,13 @@
 from dataset import BDD100KDataset
-import matplotlib.pyplot as plt
 import torch
 import torchvision
-from torchvision.utils import draw_bounding_boxes
+from torchvision.utils import draw_bounding_boxes, save_image
+import torchvision.transforms.functional as F
 from pathlib import Path
 from final_model import FCOSDetector
 from transforms import val_transform
-from tqdm import tqdm # Progress bar
 import numpy as np
+from tqdm import tqdm
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
@@ -182,7 +182,10 @@ def post_proceesing_predictions(model, outputs):
 images_test = "BDD100K Dataset/bdd100k_images_100k/100k/test"
 labels_test = "BDD100K Dataset/bdd100k_labels/100k/test"
 best_model_path = Path("best_model.pt")
-inference_folder_path = Path() # Folder to store the inference pictures.
+inference_folder_path = Path("inference_imgs") # Folder to store the inference pictures.
+
+# Create the folder
+inference_folder_path.mkdir(parents=True, exist_ok=True)
 
 # Original dataset
 bdd100k_dataset_test = BDD100KDataset(images_dir=images_test, labels_dir=labels_test, transform=val_transform)
@@ -208,12 +211,24 @@ model.load_state_dict(torch.load(best_model_path))
 model.to(device)
 model.eval()
 
-#pbar =  tqdm(test_loader)
-count = 0
+pbar =  tqdm(test_loader, desc="Running Inference")
+
+classes = {
+            0: "bus",
+            1: "traffic light",
+            2: "traffic sign",
+            3: "person",
+            4: "bike",
+            5: "truck",
+            6: "motor",
+            7: "car",
+            8: "train",
+            9: "rider"
+}
+
+count = 1
 with torch.no_grad():
-    for images, targets in test_loader:
-            if count == 1: # Just one batch for now
-                 break
+    for images, targets in pbar:
             # Move images tensor to the GPU
             images = images.to(device)
 
@@ -230,12 +245,14 @@ with torch.no_grad():
                 boxed_image = draw_bounding_boxes(
                     image=img_uint8,
                     boxes=final_boxes,
-                    labels = [f"{l.item()}:{s:.2f}" for l, s in zip(final_labels, final_scores)],
+                    labels=[f"{classes.get(l.item(), 'unknown')}:{s:.2f}" for l, s in zip(final_labels, final_scores)],
+                    colors="red",
                     width=2
                 )
 
-                plt.imshow(boxed_image.permute(1,2,0).cpu().numpy())  # H x W x C for plt
-                plt.savefig("predicted_image.png")
-                plt.axis("off")
+                boxed_image = F.resize(boxed_image, size=[720, 1280])
+                save_path = f"{inference_folder_path}/predicted_image_{count}.png"
+                save_image(boxed_image.float() / 255.0, save_path)
+                count += 1
 
-            count += 1
+        
