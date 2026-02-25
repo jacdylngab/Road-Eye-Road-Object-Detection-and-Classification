@@ -8,6 +8,7 @@ from final_model import FCOSDetector
 from transforms import val_transform
 import numpy as np
 from tqdm import tqdm
+from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
@@ -42,10 +43,6 @@ def classification_post_processing(classification_logits, centerness_logits, thr
     final_scores = []
     final_labels = []
     final_keep = []
-
-    #for lvl in range(len(classification_logits)):
-        #cls_logits_lvl = classification_logits[lvl]   # (B, C, H, W)
-        #centerness_lvl = centerness_logits[lvl]       # (B, 1, H, W)
 
     for cls_logits_lvl, centerness_lvl in zip(classification_logits, centerness_logits):
 
@@ -125,6 +122,10 @@ def multiclass_nms(boxes, scores, labels, iou_threshold=0.5):
     Returns:
         final_boxes, final_scores, final_labels
     """
+
+    if len(boxes) == 0: # No need to go through nms if there is no boxes
+        return boxes, scores, labels
+    
     final_boxes = []
     final_scores = []
     final_labels = []
@@ -148,11 +149,11 @@ def multiclass_nms(boxes, scores, labels, iou_threshold=0.5):
             torch.full((len(keep), ), cls, device=labels.device)
         )
 
-        return (
-            torch.cat(final_boxes),
-            torch.cat(final_scores),
-            torch.cat(final_labels)
-        )
+    return (
+        torch.cat(final_boxes),
+        torch.cat(final_scores),
+        torch.cat(final_labels)
+    )
 
 
 def post_proceesing_predictions(model, outputs):
@@ -164,20 +165,42 @@ def post_proceesing_predictions(model, outputs):
     decoded_boxes = bbox_post_processing(head=model.head, 
                                          bounding_box_predictions=bounding_box_predictions)
 
-    # Only keep the boxes, scores, and labels that pass the threshold 
-    best_bboxes = decoded_boxes[all_keep]
-    best_scores = all_scores[all_keep]
-    best_labels = all_labels[all_keep]
+    # Split per image
+    B = decoded_boxes.shape[0] # batch size 
+    batch_preds = []
 
-    # Apply Non-Maximum Suppression (NMS) to remove overlapping bounding boxes
-    final_boxes, final_scores, final_labels = multiclass_nms(
-        boxes=best_bboxes,
-        scores=best_scores,
-        labels=best_labels,
-        iou_threshold=0.5
-    )
+    # Build per-image predictions
+    for b in range(B):
+        # Get indices belonging to this image
+        keep_b = all_keep[b]
+        # Only keep the boxes, scores, and labels that pass the threshold 
+        boxes_b = decoded_boxes[b][keep_b]
+        scores_b = all_scores[b][keep_b]
+        labels_b = all_labels[b][keep_b]
 
-    return final_boxes, final_scores, final_labels
+        if boxes_b.numel() == 0:
+            batch_preds.append({
+                "boxes": torch.empty((0, 4)),
+                "scores": torch.empty((0,)),
+                "labels": torch.empty((0,), dtype=torch.long)
+            })
+            continue
+
+        # Apply Non-Maximum Suppression (NMS) to remove overlapping bounding boxes
+        final_boxes, final_scores, final_labels = multiclass_nms(
+            boxes=boxes_b,
+            scores=scores_b,
+            labels=labels_b,
+            iou_threshold=0.5
+        )
+
+        batch_preds.append({
+            "boxes": final_boxes.cpu(),
+            "scores": final_scores.cpu(),
+            "labels": final_labels.cpu()
+        })
+
+    return batch_preds
 
 images_test = "BDD100K Dataset/bdd100k_images_100k/100k/test"
 labels_test = "BDD100K Dataset/bdd100k_labels/100k/test"
@@ -227,6 +250,10 @@ classes = {
 }
 
 count = 1
+
+metric = MeanAveragePrecision(iou_type="bbox", iou_thresholds=[0.5, 0.75], class_metrics=True)
+
+metric.reset()
 with torch.no_grad():
     for images, targets in pbar:
             # Move images tensor to the GPU
@@ -234,18 +261,25 @@ with torch.no_grad():
 
             # Make predictions
             outputs = model(images)
-            #print(outputs)
-            final_boxes, final_scores, final_labels = post_proceesing_predictions(model=model, outputs=outputs)
+
+            batch_preds = post_proceesing_predictions(model=model, outputs=outputs)
+
+            # Move targets to CPU
+            targets_CPU = [{"boxes": t["bboxes"].cpu(), "labels": t["labels"].cpu()} for t in targets]
+
+            # Update metric
+            metric.update(batch_preds, targets_CPU)
 
             # Draw bounding boxes
-            for img in images:
+            for b, img in enumerate(images):
                 img = denormalize(img, mean=np.array([0.485, 0.456, 0.406]), std=np.array([0.229, 0.224, 0.225]))
                 img_uint8 = (img * 255).to(torch.uint8)
 
+                pred = batch_preds[b]
                 boxed_image = draw_bounding_boxes(
                     image=img_uint8,
-                    boxes=final_boxes,
-                    labels=[f"{classes.get(l.item(), 'unknown')}:{s:.2f}" for l, s in zip(final_labels, final_scores)],
+                    boxes=pred["boxes"],
+                    labels=[f"{classes.get(l.item(), 'unknown')}:{s:.2f}" for l, s in zip(pred["labels"], pred["scores"])],
                     colors="red",
                     width=2
                 )
@@ -255,4 +289,12 @@ with torch.no_grad():
                 save_image(boxed_image.float() / 255.0, save_path)
                 count += 1
 
+results = metric.compute()
+with open("metrics_data.txt", "w") as file:
+    file.write(f"mAP: {results["map"]}\n")
+    file.write(f"mAP@0.5: {results["map_50"]}\n")
+    file.write(f"mAP@0.75: {results["map_75"]}\n")
+    file.write(f"Per-class AP: {results["map_per_class"]}\n")
+
+print("DONE!")
         

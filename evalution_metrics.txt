@@ -1,0 +1,110 @@
+Step 1 — What is AP? (Average Precision)
+AP is computed per class.
+
+Imagine only the class car.
+We want to measure:
+“How good is my model at detecting cars?”
+
+🧠 Core Idea
+AP measures how well your model balances:
+    Precision
+    Recall
+across different confidence thresholds.
+
+Step 2 — Precision & Recall (Quick Reminder)
+For one class (say "car"):
+    True Positive (TP) → Correctly detected car
+    False Positive (FP) → Predicted car but wrong
+    False Negative (FN) → Missed a real car
+
+Precision
+        Precision = TP / (TP + FP)
+Out of everything I predicted as "car", how many were correct?
+
+Recall
+        Recall = TP / (TP + FN)
+Out of all real cars, how many did I detect?
+
+Step 3 — Why Threshold Matters
+The detector outputs scores:
+car: 0.91
+car: 0.83
+car: 0.40
+car: 0.12
+
+If you set threshold = 0.5:
+    You keep first two
+    Remove last two
+If threshold = 0.2:
+    You keep three
+Changing threshold changes:
+    TP
+    FP
+    FN
+    Precision
+    Recall
+
+Step 4 — Precision-Recall Curve
+Instead of picking ONE threshold,
+we sweep through ALL thresholds.
+
+For each threshold:
+    Compute precision
+    Compute recall
+We get a curve
+
+Step 5 — AP (Average Precision)
+AP = Area Under Precision-Recall Curve
+
+Higher = better.
+    Perfect detector → AP = 1.0
+    Garbage detector → AP ≈ 0
+
+🚗 Example
+For class "car":
+If:
+    Model detects almost all cars 
+    With few false positives
+AP will be high.
+
+If:
+    Model misses many cars
+    Or predicts cars everywhere
+AP will be low.
+
+Step 6 — IoU Matters
+For detection, prediction must:
+    1. Have correct class
+    2. Overlap enough with ground truth
+We measure overlap with IoU (Intersection over Union).
+
+If IoU ≥ 0.5 → counts as TP (for AP@0.5)
+If IoU < 0.5 → counts as FP
+
+So AP is computed at specific IoU thresholds.
+
+Example:
+    AP@0.5 → loose matching
+    AP@0.75 → stricter
+    AP@[0.5:0.95] → average across many thresholds
+This multi-threshold style comes from COCO.
+
+Step 7 — What is mAP?
+mAP = mean Average Precision
+It averages AP across classes.
+
+If you have 4 classes:
+    Car AP = 0.60
+    Pedestrian AP = 0.45
+    Traffic sign AP = 0.55
+    Traffic light AP = 0.52
+Then:
+    mAP = (0.60 + 0.45 + 0.55 + 0.52) / 4
+
+Why mAP Is So Important
+Because detection is multi-class.
+You don't just want:
+    “It detects traffic signs well.”
+You want:
+    “It detects ALL classes well.”
+mAP punishes class collapse.

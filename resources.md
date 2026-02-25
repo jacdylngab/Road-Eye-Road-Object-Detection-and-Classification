@@ -30,6 +30,8 @@
 - [torchvision/ops/feature_pyramid_network.py](https://github.com/pytorch/vision/blob/main/torchvision/ops/feature_pyramid_network.py)
 - [mmdet/models/dense_heads/fcos_head.py](https://github.com/open-mmlab/mmdetection/blob/main/mmdet/models/dense_heads/fcos_head.py)
 - [Training with PyTorch](https://docs.pytorch.org/tutorials/beginner/introyt/trainingyt.html)
+- [Mean Average Precision (mAP) in Object Detection](https://learnopencv.com/mean-average-precision-map-object-detection-model-evaluation-metric/)
+- [Mean Average Precision (mAP)](https://www.ultralytics.com/glossary/mean-average-precision-map)
 
 
  REMEMBER TO PUT FORMAL QUOTATION WHEN YOU ARE DONE! LIKE QUOTE ACTUAL PAPERS!
