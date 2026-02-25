@@ -290,7 +290,7 @@ with torch.no_grad():
                 count += 1
 
 results = metric.compute()
-with open("metrics_data.txt", "w") as file:
+with open("metrics_data.txt", "a") as file:
     file.write(f"mAP: {results["map"]}\n")
     file.write(f"mAP@0.5: {results["map_50"]}\n")
     file.write(f"mAP@0.75: {results["map_75"]}\n")

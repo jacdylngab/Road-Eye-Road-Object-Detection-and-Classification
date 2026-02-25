@@ -1,0 +1,108 @@
+Explanation from chatGPT
+optimizer = torch.optim.SGD(
+    model.parameters(),
+    lr=0.001,
+    momentum=0.9,
+    weight_decay=1e-4
+)
+
+🔹 1️⃣ What is lr (Learning Rate)?
+lr=0.01
+The learning rate controls how big of a step the model takes when updating weights.
+
+Think of training like hiking down a mountain:
+    Too small (1e-4) → tiny baby steps → very slow, can get stuck
+    Too large (1.0) → huge jumps → overshoot and diverge
+    Just right (0.01 for SGD in detection) → steady progress down
+In math terms:
+    new_weight = old_weight - lr * gradient
+So LR directly scales how much you change the model.
+
+🔹 2️⃣ What is momentum?
+momentum=0.9
+Momentum helps the optimizer keep moving in consistent directions instead of zig-zagging.
+
+Imagine rolling a ball downhill:
+    Without momentum → it reacts only to current slope
+    With momentum → it remembers previous direction and keeps rolling smoothly
+Mathematically, it accumulates gradients over time.
+
+Why it helps:
+    Faster convergence
+    Smoother training
+    Better generalization (especially in vision models)
+0.9 is standard for detection models.
+
+🔹 3️⃣ What is weight_decay=1e-4?
+This is L2 regularization.
+
+It slightly penalizes large weights.
+Why?
+If weights grow too large, the model:
+    Memorizes training data
+    Overfits
+    Performs poorly on validation
+
+Weight decay adds this penalty to the loss:
+Loss_total = Loss_original + λ * ||weights||²
+Where:
+    λ = 1e-4 here
+Think of it as:
+    “Don’t let the model rely too heavily on any single parameter.”
+It helps generalization.
+
+🔹 4️⃣ What is a Scheduler?
+A scheduler changes the learning rate during training.
+
+Because:
+    Early training → need big steps (explore)
+    Later training → need small steps (refine)
+
+The scheduler:
+    scheduler = StepLR(
+        optimizer,
+        step_size=30,
+        gamma=0.1
+    )
+
+This means:
+    Train normally for 30 epochs
+    Then multiply LR by 0.1
+    After 60 epochs → multiply by 0.1 again
+    After 90 → multiply again
+So if starting LR = 0.01:
+    Epoch 0–29 → 0.01
+    Epoch 30–59 → 0.001
+    Epoch 60–89 → 0.0001
+
+That allows:
+    Fast early learning
+    Fine-tuning later
+
+Without a scheduler:
+    Your model keeps taking big steps even when it should refine.
+
+Big Picture Understanding
+Optimizer = how you move
+Learning rate = how big your steps are
+Momentum = how much you remember past direction
+Weight decay = how much you prevent memorization
+Scheduler = when to slow down
+
+Summary
+Gradient descent =
+→ Follow slope of loss
+→ Adjust weights
+→ Repeat
+
+Backprop =
+→ Compute slope
+
+Optimizer =
+→ Move weights
+
+Learning rate =
+→ Step size
+
+Minimum =
+→ Best set of weights that minimizes loss

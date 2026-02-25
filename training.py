@@ -43,7 +43,6 @@ def train_one_epoch(epoch_index, train_loader, model, optimizer, tensorboard_wri
     # Progress bar
     pbar =  tqdm(train_loader, desc=f"epoch {epoch_index+1}")
 
-    # Think about using optim SGD later
     for batch_idx, (images, targets) in enumerate(pbar):
         # Move images tensor to the GPU
         images = images.to(device)
@@ -67,6 +66,11 @@ def train_one_epoch(epoch_index, train_loader, model, optimizer, tensorboard_wri
 
         # Forward pass
         losses = model(images, targets) 
+        for k, v in losses.items():
+            if torch.isnan(v):
+                print(f"NaN detected in {k}")
+                exit(1)
+
         total_loss = sum(losses.values())
 
         # Clear old gradients (from previous iteration)
@@ -101,7 +105,6 @@ def train_one_epoch(epoch_index, train_loader, model, optimizer, tensorboard_wri
             tensorboard_writer.add_scalar("Loss/train_classification", losses["loss_classification"].item(), global_step)
             tensorboard_writer.add_scalar("Loss/train_bbox", losses["loss_bounding_box"].item(), global_step)
             tensorboard_writer.add_scalar("Loss/train_centerness", losses["loss_centerness"].item(), global_step)
-
 
     # Compute epoch averages
     avg_total_loss = running_loss / num_batches
@@ -222,9 +225,9 @@ if dataset_size == 0:
 # Defining training and validation data loaders
 train_loader = torch.utils.data.DataLoader(
     dataset=bdd100k_dataset_train,
-    batch_size=4,
+    batch_size=8,
     shuffle=True, 
-    num_workers=8,
+    num_workers=12,
     pin_memory=True,
     persistent_workers=True,
     collate_fn=detection_collate_fn
@@ -232,9 +235,9 @@ train_loader = torch.utils.data.DataLoader(
 
 validation_loader = torch.utils.data.DataLoader(
     dataset=bdd100k_dataset_validation,
-    batch_size=4,
+    batch_size=8,
     shuffle=False,
-    num_workers=8,
+    num_workers=12,
     pin_memory=True,
     persistent_workers=True,
     collate_fn=detection_collate_fn
@@ -249,18 +252,31 @@ writer = SummaryWriter(f"runs/roadeye_{timestamp}")
 model = FCOSDetector().to(device=device)
 
 # Defining an optimizer algorithm
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+# optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+optimizer = torch.optim.SGD(
+    model.parameters(),
+    lr=0.005,
+    momentum=0.9,
+    weight_decay=1e-4
+)
+
+scheduler = torch.optim.lr_scheduler.StepLR(
+    optimizer=optimizer,
+    step_size=30,
+    gamma=0.1
+)
 
 EPOCHS = 100
 patience = 20
 epoch_no_improve = 0
 best_val_loss = float('inf')
+min_delta = 0.001 # minimal improvement to account as "real"
 
 for epoch in range(EPOCHS):
     avg_train_total_loss = train_one_epoch(epoch_index=epoch, 
                                      train_loader=train_loader, 
                                      model=model, 
-                                     optimizer=optimizer, 
+                                     optimizer=optimizer,
                                      tensorboard_writer=writer, 
                                      device=device)
     
@@ -270,6 +286,9 @@ for epoch in range(EPOCHS):
                                   tensorboard_writer=writer,
                                   device=device)
     
+    # Update lr if needed
+    scheduler.step()
+    
     # Log the running loss averaged per batch for both training and validation
     writer.add_scalars("Training vs. Validation Loss", 
                       { "Training" : avg_train_total_loss, "Validation" : avg_val_total_loss },
@@ -278,12 +297,12 @@ for epoch in range(EPOCHS):
     print(f"Training Average Loss: {avg_train_total_loss}")
     print(f"Validation Average Loss: {avg_val_total_loss}")
 
-    if avg_val_total_loss < best_val_loss:
+    if avg_val_total_loss < best_val_loss - min_delta:
         best_val_loss = avg_val_total_loss
         epoch_no_improve = 0
-        model_path = f"best_model_{timestamp}_{epoch}"
-        #torch.save(model.state_dict(), "best_model.pt")
-        torch.save(model.state_dict(), model_path)
+        #model_path = f"best_model_{timestamp}_{epoch}"
+        #torch.save(model.state_dict(), model_path)
+        torch.save(model.state_dict(), "best_model.pt")
     else:
         epoch_no_improve += 1
 
