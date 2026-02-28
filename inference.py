@@ -1,22 +1,75 @@
 from dataset import BDD100KDataset
 import torch
 import torchvision
+from torch import Tensor
 from torchvision.utils import draw_bounding_boxes, save_image
 import torchvision.transforms.functional as F
+from typing import Dict, List, Tuple
 from pathlib import Path
 from final_model import FCOSDetector
 from transforms import val_transform
 import numpy as np
 from tqdm import tqdm
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from head import FCOSHead, GroundTruth
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+BATCH_SIZE:        int   = 8
+NUM_WORKERS:       int   = 12
+SCORE_THRESHOLD:   float = 0.5
+NMS_IOU_THRESHOLD: float = 0.5
+IMAGENET_MEAN: List[float] = [0.485, 0.456, 0.406]
+IMAGENET_STD:  List[float] = [0.229, 0.224, 0.225]
+
+IMAGES_TEST = "BDD100K Dataset/bdd100k_images_100k/100k/test"
+LABELS_TEST = "BDD100K Dataset/bdd100k_labels/100k/test"
+BEST_MODEL_PATH = Path("best_model.pt")
+INFERENCE_FOLDER_PATH = Path("inference_imgs") # Folder to store the inference pictures.
+METRICS_OUTPUT = Path("metrics_data.txt")
+
+BDD100K_CLASSES: Dict[int, str] = {
+            0: "bus",
+            1: "traffic light",
+            2: "traffic sign",
+            3: "person",
+            4: "bike",
+            5: "truck",
+            6: "motor",
+            7: "car",
+            8: "train",
+            9: "rider"
+}
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
-def detection_collate_fn(batch):
+# =============================================================================
+# Collate function
+# =============================================================================
+
+def detection_collate_fn(
+        batch: List[Tuple[Tensor, GroundTruth]]
+    ) -> Tuple[Tensor, List[GroundTruth]]:
     """
-    Custom collate function for object detection.
-    Handles variable number of objects per image.
+    Custom collate function for object detection batches.
+
+    Standard ``torch.utils.data.default_collate`` cannot handle variable-length
+    target dicts (different numbers of objects per image). This function stacks
+    images into a single batch tensor while keeping targets as a plain list.
+
+    Args:
+        batch (List[Tuple[Tensor, GroundTruth]]): List of (image, target) pairs
+            returned by the dataset's ``__getitem__``. Each target is a dict:
+                - "bboxes"  (Tensor): (G, 4) bounding boxes in [x0, y0, x1, y1]
+                - "labels"  (Tensor): (G,)   integer class indices
+
+    Returns:
+        Tuple[Tensor, List[GroundTruth]]:
+            - images  (Tensor):            shape (B, 3, H, W)
+            - targets (List[GroundTruth]): list of length B, one dict per image
     """
     images = []
     targets = []
@@ -31,7 +84,26 @@ def detection_collate_fn(batch):
     # Keep targets as a list (can't stack due to variable sizes)
     return images, targets
 
-def denormalize(img, mean, std):
+# =============================================================================
+# Post-processing
+# =============================================================================
+
+def denormalize(
+        img:    Tensor, 
+        mean:   List[float], 
+        std:    List[float]
+    ) -> Tensor:
+    """
+    Reverse ImageNet normalization to restore pixel values to [0, 1].
+
+    Args:
+        img  (Tensor):      Normalized image, shape (C, H, W).
+        mean (List[float]): Per-channel mean used during normalization.
+        std  (List[float]): Per-channel std used during normalization.
+
+    Returns:
+        Tensor: Denormalized image in [0, 1], shape (C, H, W).
+    """
     # img: H x W x C, float
     mean = torch.tensor(mean, device=img.device).view(-1,1,1)
     std  = torch.tensor(std,  device=img.device).view(-1,1,1)
@@ -39,7 +111,39 @@ def denormalize(img, mean, std):
     img = torch.clip(img, 0, 1) # clip to valid range for display
     return img
 
-def classification_post_processing(classification_logits, centerness_logits, threshold):
+def classification_post_processing(
+        classification_logits:  List[Tensor],
+        centerness_logits:      List[Tensor],
+        threshold:              float
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+    """
+    Convert raw FCOS classification and centerness logits into thresholded
+    per-location class scores and labels across all FPN levels.
+
+    FCOS improves prediction quality by multiplying classification probabilities
+    with centerness — this suppresses low-confidence edge predictions that are
+    far from GT box centers.
+
+    Processing per FPN level:
+        1. Apply sigmoid to classification and centerness logits → probabilities.
+        2. Multiply element-wise to form quality-weighted scores.
+        3. Flatten spatial dimensions: (B, C, H, W) → (B, H*W, C).
+        4. Take argmax over classes: best class + score per location.
+        5. Apply score threshold → boolean keep mask.
+
+    Args:
+        classification_logits (List[Tensor]): Per-level raw class logits,
+                                              each (B, num_classes, H_i, W_i).
+        centerness_logits     (List[Tensor]): Per-level raw centerness logits,
+                                              each (B, 1, H_i, W_i).
+        threshold             (float):        Minimum score to keep a prediction.
+
+    Returns:
+        Tuple[Tensor, Tensor, Tensor]:
+            - all_scores (B, total_points):        quality-weighted class scores
+            - all_labels (B, total_points):        predicted class indices
+            - all_keep   (B, total_points) bool:   True where score > threshold
+    """
     final_scores = []
     final_labels = []
     final_keep = []
@@ -83,7 +187,30 @@ def classification_post_processing(classification_logits, centerness_logits, thr
 
     return all_scores, all_labels, all_keep
 
-def bbox_post_processing(head, bounding_box_predictions):
+def bbox_post_processing(
+        head:                       FCOSHead,
+        bounding_box_predictions:   List[Tensor]
+    ) -> Tensor:
+    """
+    Decode per-level FCOS (l, t, r, b) distance predictions into absolute
+    (x0, y0, x1, y1) bounding box coordinates in image space.
+
+    For each FPN level:
+        1. Flatten spatial dims: (B, 4, H, W) → (B, H*W, 4).
+        2. Generate grid point coordinates for this level.
+        3. Decode distances from each grid point: x0=px-l, y0=py-t, x1=px+r, y1=py+b.
+
+    Args:
+        head                     (FCOSHead):    The FCOS head, used to access
+                                                ``single_level_grid_priors`` and
+                                                ``decode_bounding_boxes``.
+        bounding_box_predictions (List[Tensor]): Per-level box predictions,
+                                                each (B, 4, H_i, W_i).
+
+    Returns:
+        Tensor: Decoded boxes in (x0, y0, x1, y1) format,
+                shape (B, total_points, 4), in image-space pixels.
+    """
     all_decoded_boxes = []
 
     for lvl_index, bbox_lvl_pred in enumerate(bounding_box_predictions): # lvl_pred: (B, 4, H, W)
@@ -113,14 +240,31 @@ def bbox_post_processing(head, bounding_box_predictions):
     
     return decoded_boxes
 
-def multiclass_nms(boxes, scores, labels, iou_threshold=0.5):
+def multiclass_nms(
+        boxes:          Tensor,
+        scores:         Tensor,
+        labels:         Tensor,
+        iou_threshold:  float = NMS_IOU_THRESHOLD
+    ) -> Tuple[Tensor, Tensor, Tensor]:
     """
+    Apply class-aware Non-Maximum Suppression (NMS) to remove overlapping detections.
+
+    NMS is applied independently per class — a car detection and a truck detection
+    at the same location are not suppressed against each other.
+
     Args:
-        boxes:  (N, 4)
-        scores: (N,)
-        labels: (N,)
+        boxes         (Tensor): Predicted boxes,  shape (N, 4), format (x0,y0,x1,y1).
+        scores        (Tensor): Prediction scores, shape (N,).
+        labels        (Tensor): Predicted classes, shape (N,), integer indices.
+        iou_threshold (float):  IoU threshold above which the lower-scoring box
+                                is suppressed. Default: ``NMS_IOU_THRESHOLD``.
+
     Returns:
-        final_boxes, final_scores, final_labels
+        Tuple[Tensor, Tensor, Tensor]:
+            - final_boxes  (M, 4): surviving boxes after NMS
+            - final_scores (M,):   corresponding scores
+            - final_labels (M,):   corresponding class indices
+        where M ≤ N.
     """
 
     if len(boxes) == 0: # No need to go through nms if there is no boxes
@@ -156,7 +300,30 @@ def multiclass_nms(boxes, scores, labels, iou_threshold=0.5):
     )
 
 
-def post_proceesing_predictions(model, outputs):
+def post_proceesing_predictions(
+        model: FCOSDetector,
+        outputs: Tuple[List[Tensor], List[Tensor], List[Tensor]]
+    ) -> List[Dict{str, Tensor}]:
+    """
+    Full post-processing pipeline: sigmoid → centerness weighting → threshold
+    → box decoding → NMS → per-image prediction dicts.
+
+    Args:
+        model   (FCOSDetector): The detector, used to access ``model.head``
+                                for grid prior generation and box decoding.
+        outputs (Tuple):        Raw head outputs from ``model(images)``:
+                                    - classification_logits (List[Tensor])
+                                    - bounding_box_predictions (List[Tensor])
+                                    - centerness_logits (List[Tensor])
+
+    Returns:
+        List[Dict[str, Tensor]]: One dict per image in the batch:
+            - "boxes"  (M, 4):  final boxes in (x0, y0, x1, y1) image-space
+            - "scores" (M,):    confidence scores in (0, 1)
+            - "labels" (M,):    integer class indices
+
+        Images with no detections above threshold return empty tensors.
+    """
     classification_logits, bounding_box_predictions, centerness_logits = outputs
 
     all_scores, all_labels, all_keep = classification_post_processing(classification_logits=classification_logits,
@@ -202,16 +369,19 @@ def post_proceesing_predictions(model, outputs):
 
     return batch_preds
 
-images_test = "BDD100K Dataset/bdd100k_images_100k/100k/test"
-labels_test = "BDD100K Dataset/bdd100k_labels/100k/test"
-best_model_path = Path("best_model.pt")
-inference_folder_path = Path("inference_imgs") # Folder to store the inference pictures.
+# =============================================================================
+# Dataset and DataLoader
+# =============================================================================
 
 # Create the folder
-inference_folder_path.mkdir(parents=True, exist_ok=True)
+INFERENCE_FOLDER_PATH.mkdir(parents=True, exist_ok=True)
 
 # Original dataset
-bdd100k_dataset_test = BDD100KDataset(images_dir=images_test, labels_dir=labels_test, transform=val_transform)
+bdd100k_dataset_test = BDD100KDataset(
+    images_dir=IMAGES_TEST,
+    labels_dir=LABELS_TEST,
+    transform=val_transform
+)
 
 dataset_size = len(bdd100k_dataset_test)
 
@@ -220,34 +390,36 @@ if dataset_size == 0:
 
 test_loader = torch.utils.data.DataLoader(
     dataset=bdd100k_dataset_test,
-    batch_size=4,
+    batch_size=BATCH_SIZE,
     shuffle=False,
-    num_workers=8,
+    num_workers=NUM_WORKERS,
     pin_memory=True,
     persistent_workers=True,
     collate_fn=detection_collate_fn
 )
 
+# =============================================================================
+# Model
+# =============================================================================
+
 # Load the trained model
 model = FCOSDetector().to(device=device)
-model.load_state_dict(torch.load(best_model_path))
+
+checkpoint = torch.load(BEST_MODEL_PATH, map_location=device)
+
+if "model_state_dict" in checkpoint:
+    model.load_state_dict(checkpoint["model_state_dict"])
+else:
+    model.load_state_dict(checkpoint)
+
 model.to(device)
 model.eval()
 
-pbar =  tqdm(test_loader, desc="Running Inference")
+# =============================================================================
+# Inference loop
+# =============================================================================
 
-classes = {
-            0: "bus",
-            1: "traffic light",
-            2: "traffic sign",
-            3: "person",
-            4: "bike",
-            5: "truck",
-            6: "motor",
-            7: "car",
-            8: "train",
-            9: "rider"
-}
+pbar =  tqdm(test_loader, desc="Running Inference")
 
 count = 1
 
@@ -272,29 +444,43 @@ with torch.no_grad():
 
             # Draw bounding boxes
             for b, img in enumerate(images):
-                img = denormalize(img, mean=np.array([0.485, 0.456, 0.406]), std=np.array([0.229, 0.224, 0.225]))
+                img = denormalize(img, mean=np.array(IMAGENET_MEAN), std=np.array(IMAGENET_STD))
                 img_uint8 = (img * 255).to(torch.uint8)
 
                 pred = batch_preds[b]
                 boxed_image = draw_bounding_boxes(
                     image=img_uint8,
                     boxes=pred["boxes"],
-                    labels=[f"{classes.get(l.item(), 'unknown')}:{s:.2f}" for l, s in zip(pred["labels"], pred["scores"])],
+                    labels=[f"{BDD100K_CLASSES.get(l.item(), 'unknown')}: {s:.2f}" for l, s in zip(pred["labels"], pred["scores"])],
                     colors="red",
                     width=2
                 )
 
                 boxed_image = F.resize(boxed_image, size=[720, 1280])
-                save_path = f"{inference_folder_path}/predicted_image_{count}.png"
+                save_path = f"{INFERENCE_FOLDER_PATH}/predicted_image_{count}.png"
                 save_image(boxed_image.float() / 255.0, save_path)
                 count += 1
 
+# =============================================================================
+# Metrics
+# =============================================================================
+
 results = metric.compute()
+
+# Per-class mAP aligned with class names
+per_class_ap: Dict[str, float] = {
+    BDD100K_CLASSES[i]: float(results["map_per_class"][i])
+    for i in range(len(BDD100K_CLASSES))
+    if i < len(results["map_per_class"])
+}
+
 with open("metrics_data.txt", "a") as file:
     file.write(f"mAP: {results["map"]}\n")
     file.write(f"mAP@0.5: {results["map_50"]}\n")
     file.write(f"mAP@0.75: {results["map_75"]}\n")
-    file.write(f"Per-class AP: {results["map_per_class"]}\n")
+    file.write(f"Per-class AP:\n")
+    for cls_name, ap in per_class_ap.items():
+        file.write(f"  {cls_name:<15} {ap:.4f}\n")
 
 print("DONE!")
         
