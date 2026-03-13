@@ -226,7 +226,7 @@ class FCOSHead(nn.Module):
         centerness_prediction = self.conv_centerness(regression_feat)
 
         # Normalize targets (l,t,b,r) by stride
-        bounding_box_prediction = bounding_box_prediction.clamp(min=0) # This is the same as ReLU
+        #bounding_box_prediction = bounding_box_prediction.clamp(min=0) # This is the same as ReLU
 
         # During inference: rescale from stride-space → image-space
         if not self.training:

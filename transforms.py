@@ -5,8 +5,8 @@ from albumentations.pytorch import ToTensorV2
 train_transform = A.Compose([
     # 1. GEOMETRIC Transformation
     A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
-        height=360, 
-        width=640
+        height=450, 
+        width=800
     ), 
     A.HorizontalFlip(
         p=0.5
@@ -42,14 +42,6 @@ train_transform = A.Compose([
         per_channel=True, 
         p=0.2
     ),
-
-    # 3. DROPOUT. This is teaches the model to recognize an image even if it is partially blocked. It focuses on partial information
-    A.CoarseDropout(
-        num_holes_range=(1, 6),
-        hole_height_range=(20, 60),
-        hole_width_range=(20, 60),
-        p=0.3
-    ),
     A.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225]
@@ -66,8 +58,8 @@ bbox_params=A.BboxParams(
 # Validation / Test augmentations
 val_transform = A.Compose([
     A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360
-        height=360, 
-        width=640
+        height=450, 
+        width=800
     ), 
     A.Normalize(
         mean=[0.485, 0.456, 0.406],
