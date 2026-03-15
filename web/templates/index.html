@@ -8,8 +8,18 @@
     <body>
         <h1>Flask Demo</h1>
 
-        <input type="text" id="nameInput" placeholder="Enter your name">
-        <button onclick="sendName()">Send</button>
+        <h2>Upload Image</h2>
+
+        <form id="uploadForm">
+            <!--
+            type="file" creates the file picker
+            accept="image/*" restricts it to image files only
+            The <img> tag is where you'll display the result
+            -->
+            <input type="file" id="fileInput" name="image" accept="image/*">
+            <button type="button" onclick="uploadImage()">Upload</button>
+            <img id="result">
+        </form>
 
         <p id="response"></p>
 
