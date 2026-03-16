@@ -1,6 +1,9 @@
 from flask import Flask, render_template, request, send_file
-from PIL import Image
-import io
+import sys
+from pathlib import Path
+# Add project root to path so Flask can find sibling packages
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from inference.inference_image import uploaded_image_to_tensor, inference_single_image, tensor_to_png_buffer
 
 app = Flask(__name__)
 
@@ -13,23 +16,16 @@ def upload():
     file = request.files["image"]
 
     if file:
-        img = Image.open(file.stream) # open the image from the uploaded file
-    
-        # TODO: Pass the image to the model for inference
+        image_tensor = uploaded_image_to_tensor(file)
 
-        buf = io.BytesIO()
-        img.save(buf, format="PNG") # write the image into the buffer
-        buf.seek(0) # rewind to the start
-        return send_file(buf, mimetype="image/png")
+        # Run inference
+        boxed_image = inference_single_image(image_tensor) 
+
+        buf = tensor_to_png_buffer(boxed_image)
+
+        return send_file(buf, mimetype="image/png") # sends the image bytes back to the browser
     
     return "No file uploaded"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
-
-"""
-request.files["image"] — the key "image" must match what you used in formData.append()
-io.BytesIO() — an in-memory buffer (so you don't have to save the image to disk)
-buf.seek(0) — rewinds the buffer back to the start before sending it
-send_file() — sends the image bytes back to the browser
-"""

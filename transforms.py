@@ -4,6 +4,10 @@ from albumentations.pytorch import ToTensorV2
 # Training augmentations
 train_transform = A.Compose([
     # 1. GEOMETRIC Transformation
+    #A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
+    #    height=360, 
+    #    width=640
+    #), 
     A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
         height=450, 
         width=800
@@ -57,6 +61,10 @@ bbox_params=A.BboxParams(
 
 # Validation / Test augmentations
 val_transform = A.Compose([
+    #A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
+    #    height=360, 
+    #    width=640
+    #), 
     A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360
         height=450, 
         width=800
@@ -73,3 +81,21 @@ bbox_params=A.BboxParams(
     min_area=1,
     min_visibility=0.2
 ))
+
+# Augmentation for inference on a single image.
+# This does not except bounding boxes like other augmentations
+val_transform_infer = A.Compose([
+    #A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360 for faster training
+    #    height=360, 
+    #    width=640
+    #), 
+    A.Resize( # Reduce the resolution of the images from 1280x720 to 640x360
+        height=450, 
+        width=800
+    ), 
+    A.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    ),
+    ToTensorV2()
+])

@@ -1,16 +1,9 @@
-from dataset import BDD100KDataset
+from typing import Dict, List, Tuple
+from pathlib import Path
 import torch
 import torchvision
 from torch import Tensor
-from torchvision.utils import draw_bounding_boxes, save_image
-import torchvision.transforms.functional as F
-from typing import Dict, List, Tuple
-from pathlib import Path
 from final_model import FCOSDetector
-from transforms import val_transform
-import numpy as np
-from tqdm import tqdm
-from torchmetrics.detection.mean_ap import MeanAveragePrecision
 from head import FCOSHead, GroundTruth
 
 # =============================================================================
@@ -26,7 +19,8 @@ IMAGENET_STD:  List[float] = [0.229, 0.224, 0.225]
 
 IMAGES_TEST = "BDD100K Dataset/bdd100k_images_100k/100k/test"
 LABELS_TEST = "BDD100K Dataset/bdd100k_labels/100k/test"
-BEST_MODEL_PATH = Path("best_model.pt")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent # This will point to the project root (parent folder of inference/)
+BEST_MODEL_PATH = PROJECT_ROOT / "best_model.pt"
 INFERENCE_FOLDER_PATH = Path("inference_imgs") # Folder to store the inference pictures.
 METRICS_OUTPUT = Path("metrics_data.txt")
 
@@ -303,7 +297,7 @@ def multiclass_nms(
 def post_proceesing_predictions(
         model: FCOSDetector,
         outputs: Tuple[List[Tensor], List[Tensor], List[Tensor]]
-    ) -> List[Dict{str, Tensor}]:
+    ) -> List[Dict[str, Tensor]]:
     """
     Full post-processing pipeline: sigmoid → centerness weighting → threshold
     → box decoding → NMS → per-image prediction dicts.
@@ -370,117 +364,21 @@ def post_proceesing_predictions(
     return batch_preds
 
 # =============================================================================
-# Dataset and DataLoader
-# =============================================================================
-
-# Create the folder
-INFERENCE_FOLDER_PATH.mkdir(parents=True, exist_ok=True)
-
-# Original dataset
-bdd100k_dataset_test = BDD100KDataset(
-    images_dir=IMAGES_TEST,
-    labels_dir=LABELS_TEST,
-    transform=val_transform
-)
-
-dataset_size = len(bdd100k_dataset_test)
-
-if dataset_size == 0:
-    raise RuntimeError("Dataset is empty - check dataset path on server")
-
-test_loader = torch.utils.data.DataLoader(
-    dataset=bdd100k_dataset_test,
-    batch_size=BATCH_SIZE,
-    shuffle=False,
-    num_workers=NUM_WORKERS,
-    pin_memory=True,
-    persistent_workers=True,
-    collate_fn=detection_collate_fn
-)
-
-# =============================================================================
 # Model
 # =============================================================================
 
-# Load the trained model
-model = FCOSDetector().to(device=device)
+def trained_model():
+    # Load the trained model
+    model = FCOSDetector().to(device=device)
 
-checkpoint = torch.load(BEST_MODEL_PATH, map_location=device)
+    checkpoint = torch.load(BEST_MODEL_PATH, map_location=device)
 
-if "model_state_dict" in checkpoint:
-    model.load_state_dict(checkpoint["model_state_dict"])
-else:
-    model.load_state_dict(checkpoint)
+    if "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        model.load_state_dict(checkpoint)
 
-model.to(device)
-model.eval()
+    model.to(device)
+    model.eval()
 
-# =============================================================================
-# Inference loop
-# =============================================================================
-
-pbar =  tqdm(test_loader, desc="Running Inference")
-
-count = 1
-
-metric = MeanAveragePrecision(iou_type="bbox", iou_thresholds=[0.5, 0.75], class_metrics=True)
-
-metric.reset()
-with torch.no_grad():
-    for images, targets in pbar:
-            # Move images tensor to the GPU
-            images = images.to(device)
-
-            # Make predictions
-            outputs = model(images)
-
-            batch_preds = post_proceesing_predictions(model=model, outputs=outputs)
-
-            # Move targets to CPU
-            targets_CPU = [{"boxes": t["bboxes"].cpu(), "labels": t["labels"].cpu()} for t in targets]
-
-            # Update metric
-            metric.update(batch_preds, targets_CPU)
-
-            # Draw bounding boxes
-            for b, img in enumerate(images):
-                img = denormalize(img, mean=np.array(IMAGENET_MEAN), std=np.array(IMAGENET_STD))
-                img_uint8 = (img * 255).to(torch.uint8)
-
-                pred = batch_preds[b]
-                boxed_image = draw_bounding_boxes(
-                    image=img_uint8,
-                    boxes=pred["boxes"],
-                    labels=[f"{BDD100K_CLASSES.get(l.item(), 'unknown')}: {s:.2f}" for l, s in zip(pred["labels"], pred["scores"])],
-                    colors="red",
-                    width=2
-                )
-
-                boxed_image = F.resize(boxed_image, size=[720, 1280])
-                save_path = f"{INFERENCE_FOLDER_PATH}/predicted_image_{count}.png"
-                save_image(boxed_image.float() / 255.0, save_path)
-                count += 1
-
-# =============================================================================
-# Metrics
-# =============================================================================
-
-results = metric.compute()
-
-# Per-class mAP aligned with class names
-per_class_ap: Dict[str, float] = {
-    BDD100K_CLASSES[i]: float(results["map_per_class"][i])
-    for i in range(len(BDD100K_CLASSES))
-    if i < len(results["map_per_class"])
-}
-
-with open("metrics_data.txt", "a") as file:
-    file.write(f"mAP: {results["map"]}\n")
-    file.write(f"mAP@0.5: {results["map_50"]}\n")
-    file.write(f"mAP@0.75: {results["map_75"]}\n")
-    file.write(f"Per-class AP:\n")
-    for cls_name, ap in per_class_ap.items():
-        file.write(f"  {cls_name:<15} {ap:.4f}\n")
-
-print("DONE!")
-        
+    return model

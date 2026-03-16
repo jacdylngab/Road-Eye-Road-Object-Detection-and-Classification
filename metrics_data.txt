@@ -58,3 +58,25 @@ Per-class AP:
   car             0.3783
   train           0.0000
   rider           0.0000
+
+_________________________________________________________________________________________________________________________
+
+
+mAP: 0.06099555268883705
+mAP@0.5: 0.06642845273017883
+mAP@0.75: 0.05556264892220497
+Per-class AP:
+  bus             0.0000
+  traffic light   0.0537
+  traffic sign    0.1919
+  person          0.0000
+  bike            0.0000
+  truck           0.0000
+  motor           0.0000
+  car             0.3644
+  train           0.0000
+  rider           0.0000
+
+It is getting worse!! Why?? Why is it getting worse when I increase the size of the image and introduced relu and normalization?
+_________________________________________________________________________________________________________________________
+
