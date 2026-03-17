@@ -10,6 +10,23 @@ INF = 1e8
 # Type alias for a single image's ground truth annotations
 GroundTruth = Dict[str, Tensor]
 
+class Scale(nn.Module):
+    """
+    A learnable scale parameter.
+
+    This layer scales the input by a learnable factor. It multiplies a
+    learnable scale parameter of shape (1,) with input of any shape.
+
+    Args:
+        scale (float): Initial value of scale factor. Default: 1.0
+    """
+    def __init__(self, init_value: float = 1.0):
+        super().__init__()
+        self.scale = nn.Parameter(torch.tensor(init_value, dtype=torch.float32))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.scale
+
 class FCOSHead(nn.Module):
     """
     Anchor-free detection head based on FCOS (Fully Convolutional One-Stage Object Detection).
@@ -111,6 +128,7 @@ class FCOSHead(nn.Module):
         self.center_sampling = center_sampling
         self.center_sample_radius = center_sample_radius
         self.loss_centerness = nn.BCEWithLogitsLoss(reduction="sum") # Centerness loss to find the best center on the object. Center points produce better bounding. While edge points produce bad boxes
+        self.scales = nn.ModuleList([Scale(init_value=1.0) for _ in self.strides]) # learnable multiplier that adjusts bounding box predictions for each FPN level.
 
         self.initialize_head_layers()
 
@@ -179,7 +197,7 @@ class FCOSHead(nn.Module):
         self.conv_regression = nn.Conv2d(in_channels=self.feat_channels, out_channels=4, kernel_size=3, padding=1) # Convs for bounding box regression. Like to learn the coordinates of bounding boxes
         self.conv_classification = nn.Conv2d(in_channels=self.feat_channels, out_channels=self.num_classes, kernel_size=3, padding=1) # Convs to learn what the object is
 
-    def forward_fpn_level(self, x: Tensor, stride: int) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward_fpn_level(self, x: Tensor, stride: int, scale: Scale) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Run the FCOS head on a single FPN feature map.
 
@@ -194,6 +212,7 @@ class FCOSHead(nn.Module):
             x      (Tensor): FPN feature map, shape (B, C, H, W).
             stride (int):    Stride of this FPN level in image-space pixels
                              (e.g. 8 for layer2).
+            scale (Scale):   learnable multiplier that adjusts bounding box predictions for each FPN level.
 
         Returns:
             Tuple[Tensor, Tensor, Tensor]:
@@ -209,6 +228,7 @@ class FCOSHead(nn.Module):
         # Classification tower: Conv → GroupNorm → ReLU (per layer)
         for conv, norm in zip(self.classification_convs, self.classification_norms):
             classification_feat = F.relu(norm(conv(classification_feat)))
+            #classification_feat = F.leaky_relu(norm(conv(classification_feat)), negative_slope=0.1)
 
         # Pass the feature maps from the stacked classification convs to the final prediction classification convolution to make final predictions
         classification_score = self.conv_classification(classification_feat)
@@ -216,11 +236,17 @@ class FCOSHead(nn.Module):
         # Pass the feature maps from the fpn level to the stacked regression convolutions
         # Regression tower: Conv → GroupNorm → ReLU (per layer)
         for conv, norm in zip(self.regression_convs, self.regression_norms):
-            regression_feat = F.relu(norm(conv(regression_feat)))
+            #regression_feat = F.relu(norm(conv(regression_feat)))
+            regression_feat = norm(conv(regression_feat))
+
+        bounding_box_prediction = self.conv_regression(regression_feat)
+        # scale the bbox_pred of different level
+        # float to avoid overflow when enabling FP16
+        bounding_box_prediction = scale(bounding_box_prediction).float()
 
         # Pass the feature maps from the stacked regression convs to the final regression prediction convolution to make final predictions
         # Box distances must be non-negative — clamp acts as ReLU on the output
-        bounding_box_prediction = self.conv_regression(regression_feat).clamp(min=0)
+        bounding_box_prediction = bounding_box_prediction.clamp(min=0)
 
         # Centerness is predicted on box regression not classification. The FCOS paper found that this works better.
         centerness_prediction = self.conv_centerness(regression_feat)
@@ -266,8 +292,8 @@ class FCOSHead(nn.Module):
         bounding_box_predictions: List[Tensor] = []
         centerness_predictions: List[Tensor] = []
 
-        for feat, stride in zip(feats, self.strides):
-            classification_score, bounding_box_prediction, centerness_prediction = self.forward_fpn_level(feat, stride)
+        for feat, stride, scale in zip(feats, self.strides, self.scales):
+            classification_score, bounding_box_prediction, centerness_prediction = self.forward_fpn_level(feat, stride, scale)
             classification_scores.append(classification_score)
             bounding_box_predictions.append(bounding_box_prediction)
             centerness_predictions.append(centerness_prediction)

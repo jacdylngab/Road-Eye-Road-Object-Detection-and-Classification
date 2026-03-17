@@ -21,6 +21,7 @@ IMAGES_TEST = "BDD100K Dataset/bdd100k_images_100k/100k/test"
 LABELS_TEST = "BDD100K Dataset/bdd100k_labels/100k/test"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent # This will point to the project root (parent folder of inference/)
 BEST_MODEL_PATH = PROJECT_ROOT / "best_model.pt"
+#BEST_MODEL_PATH = PROJECT_ROOT / "best_model3.pt"
 INFERENCE_FOLDER_PATH = Path("inference_imgs") # Folder to store the inference pictures.
 METRICS_OUTPUT = Path("metrics_data.txt")
 

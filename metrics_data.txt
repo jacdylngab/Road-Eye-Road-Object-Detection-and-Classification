@@ -40,7 +40,9 @@ mAP@0.75: 0.10005743056535721
 Per-class AP: tensor([0.2048, 0.0526, 0.1446, 0.1176, 0.0173, 0.1885, 0.0099, 0.3534, 0.0000,
         0.0139])
 
-Wow! This is definetely an improvement! 
+Wow! This is definetely an improvement!
+
+# I think, I am sure this best_model3.pt
 
 _________________________________________________________________________________________________________________________
 
@@ -80,3 +82,19 @@ Per-class AP:
 It is getting worse!! Why?? Why is it getting worse when I increase the size of the image and introduced relu and normalization?
 _________________________________________________________________________________________________________________________
 
+ Retying best_model3.pt 
+
+ mAP: 0.07661266624927521
+mAP@0.5: 0.08499317616224289
+mAP@0.75: 0.06823215633630753
+Per-class AP:
+  bus             0.0000
+  traffic light   0.0794
+  traffic sign    0.1596
+  person          0.1341
+  bike            0.0000
+  truck           0.0187
+  motor           0.0000
+  car             0.3743
+  train           0.0000
+  rider           0.0000

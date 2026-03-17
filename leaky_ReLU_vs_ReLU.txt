@@ -1,0 +1,16 @@
+Learned this from chatGPT
+
+Leaky ReLU vs ReLU
+ReLU:
+        𝑓(𝑥) = max(0,𝑥)
+    Negative values are set to 0. Can "kill" small features.
+Leaky ReLU:
+       𝑓(𝑥) = { x  x > 0
+              { αx x <= 0
+    Usually 𝛼 = 0.01 or 0.1.
+    . Small negative values are not zeroed out—they get scaled down.
+    . Prevents feature suppression in deeper layers, especially for rare classes.
+
+PyTorch:
+    import torch.nn.functional as F
+    F.leaky_relu(tensor, negative_slope=0.1)

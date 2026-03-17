@@ -1,0 +1,29 @@
+Understanding what Scale does in the mmdetection FCOS implementation. chatGPT explanation
+
+1. What Scale does
+    scale is a learnable scalar multiplier applied to the bounding box predictions at each FPN level.
+    Conceptually, it allows the network to adjust the magnitude of the predicted distances (l, t, r, b) automatically per feature map level.
+    In FCOS, boxes are predicted as distances from the point to the sides of the box. Depending on the FPN level (stride), the raw regression output may be too small or too large. Scale lets the model learn the optimal scale instead of hardcoding it.
+
+Mathematically:
+    bbox_predscaled​=s×bbox_pred
+where:
+    s = learnable scalar parameter
+    bbox_pred = predicted (l, t, r, b) distances from FCOS
+So the model learns:
+    For this FPN level, multiply all predicted box distances by this value.
+
+2. Why FCOS uses it 
+In FCOS, each FPN level predicts boxes for different object sizes:
+| FPN Level | Stride | Typical Objects |
+| --------- | ------ | --------------- |
+| P3        | 8      | small objects   |
+| P4        | 16     | medium          |
+| P5        | 32     | large           |
+
+But the regression head outputs values that might be too small or too large for that level.
+So FCOS lets the model learn a scaling factor per level.
+P3 scale ≈ 0.7
+P4 scale ≈ 1.1
+P5 scale ≈ 1.8
+This helps boxes match the real object sizes better.
