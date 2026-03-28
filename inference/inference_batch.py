@@ -2,6 +2,7 @@ from typing import Dict
 import torch
 import torchvision.transforms.functional as F
 import numpy as np
+import cv2
 from tqdm import tqdm
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 from torchvision.utils import draw_bounding_boxes, save_image
@@ -10,7 +11,7 @@ from transforms import val_transform
 from .inference_utils import (
     INFERENCE_FOLDER_PATH, IMAGES_TEST, LABELS_TEST, BATCH_SIZE, NUM_WORKERS, 
     detection_collate_fn, device, post_proceesing_predictions, denormalize,
-    IMAGENET_MEAN, IMAGENET_STD, BDD100K_CLASSES, trained_model 
+    IMAGENET_MEAN, IMAGENET_STD, BDD100K_CLASSES, trained_model, draw_bbox 
 )
 
 # =============================================================================
@@ -75,9 +76,10 @@ with torch.no_grad():
             # Draw bounding boxes
             for b, img in enumerate(images):
                 img = denormalize(img, mean=np.array(IMAGENET_MEAN), std=np.array(IMAGENET_STD))
-                img_uint8 = (img * 255).to(torch.uint8)
+                # img_uint8 = (img * 255).to(torch.uint8)
 
                 pred = batch_preds[b]
+                """
                 boxed_image = draw_bounding_boxes(
                     image=img_uint8,
                     boxes=pred["boxes"],
@@ -85,10 +87,18 @@ with torch.no_grad():
                     colors="red",
                     width=2
                 )
+                """
+                boxed_image = draw_bbox(
+                     image=img,
+                     boxes=pred["boxes"],
+                     labels=pred["labels"],
+                     scores=pred["scores"])
 
-                boxed_image = F.resize(boxed_image, size=[720, 1280])
+                # boxed_image = F.resize(boxed_image, size=[720, 1280])
+                boxed_image = cv2.resize(boxed_image, (1280, 720))
                 save_path = f"{INFERENCE_FOLDER_PATH}/predicted_image_{count}.png"
-                save_image(boxed_image.float() / 255.0, save_path)
+                # save_image(boxed_image.float() / 255.0, save_path)
+                cv2.imwrite(save_path, boxed_image)
                 count += 1
 
 # =============================================================================

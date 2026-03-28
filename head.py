@@ -101,7 +101,7 @@ class FCOSHead(nn.Module):
                      (512, INF)
                 ),
                  center_sampling: bool = True, 
-                 center_sample_radius: float = 1.5, 
+                 center_sample_radius: float = 1.5 
                 ) -> None:
         """
         Initialize FCOS head layers, loss functions, and hyperparameters.
@@ -198,6 +198,7 @@ class FCOSHead(nn.Module):
         self.conv_classification = nn.Conv2d(in_channels=self.feat_channels, out_channels=self.num_classes, kernel_size=3, padding=1) # Convs to learn what the object is
 
     def forward_fpn_level(self, x: Tensor, stride: int, scale: Scale) -> Tuple[Tensor, Tensor, Tensor]:
+    #def forward_fpn_level(self, x: Tensor, stride: int) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Run the FCOS head on a single FPN feature map.
 
@@ -227,8 +228,8 @@ class FCOSHead(nn.Module):
         # Pass the feature maps from the fpn level to the stacked classification convolutions
         # Classification tower: Conv → GroupNorm → ReLU (per layer)
         for conv, norm in zip(self.classification_convs, self.classification_norms):
-            classification_feat = F.relu(norm(conv(classification_feat)))
-            #classification_feat = F.leaky_relu(norm(conv(classification_feat)), negative_slope=0.1)
+            #classification_feat = F.relu(norm(conv(classification_feat)))
+            classification_feat = F.leaky_relu(norm(conv(classification_feat)), negative_slope=0.01)
 
         # Pass the feature maps from the stacked classification convs to the final prediction classification convolution to make final predictions
         classification_score = self.conv_classification(classification_feat)
@@ -293,7 +294,9 @@ class FCOSHead(nn.Module):
         centerness_predictions: List[Tensor] = []
 
         for feat, stride, scale in zip(feats, self.strides, self.scales):
+        #for feat, stride in zip(feats, self.strides):
             classification_score, bounding_box_prediction, centerness_prediction = self.forward_fpn_level(feat, stride, scale)
+            #classification_score, bounding_box_prediction, centerness_prediction = self.forward_fpn_level(feat, stride)
             classification_scores.append(classification_score)
             bounding_box_predictions.append(bounding_box_prediction)
             centerness_predictions.append(centerness_prediction)

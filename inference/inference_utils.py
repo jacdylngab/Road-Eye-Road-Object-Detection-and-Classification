@@ -5,6 +5,8 @@ import torchvision
 from torch import Tensor
 from final_model import FCOSDetector
 from head import FCOSHead, GroundTruth
+import cv2
+import numpy as np
 
 # =============================================================================
 # Constants
@@ -22,6 +24,7 @@ LABELS_TEST = "BDD100K Dataset/bdd100k_labels/100k/test"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent # This will point to the project root (parent folder of inference/)
 BEST_MODEL_PATH = PROJECT_ROOT / "best_model.pt"
 #BEST_MODEL_PATH = PROJECT_ROOT / "best_model3.pt"
+#BEST_MODEL_PATH = PROJECT_ROOT / "best_model4.pt"
 INFERENCE_FOLDER_PATH = Path("inference_imgs") # Folder to store the inference pictures.
 METRICS_OUTPUT = Path("metrics_data.txt")
 
@@ -383,3 +386,64 @@ def trained_model():
     model.eval()
 
     return model
+
+def get_color(idx):
+    np.random.seed(idx)
+    return tuple(np.random.randint(0, 255, 3).tolist())
+
+def draw_bbox(image, boxes, labels, scores, class_names=BDD100K_CLASSES):
+    img = image.cpu().numpy().transpose(1, 2, 0)
+
+    # If values are in [0, 1], scale once
+    if img.max() <= 1.0:
+        img = (img * 255)
+
+    img = img.astype("uint8")
+    img = np.ascontiguousarray(img)
+
+    # Convert RGB -> BGR for opencv
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+    for box, label, score in zip(boxes, labels, scores):
+        x1, y1, x2, y2 = map(int, box)
+
+        class_id = label.item()
+        class_name = class_names.get(class_id, "unknown")
+        text = f"{class_name}: {score:.2f}"
+
+        # get the color
+        color = get_color(class_id)
+
+        # Draw bounding box
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+
+        # --- TEXT SETTINGS ---
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.4
+        thickness = 1
+
+        # Get text size
+        (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+        # Draw filled rectangle ABOVE the box
+        cv2.rectangle(
+            img, 
+            (x1, y1 - text_h - 5),
+            (x1 + text_w, y1),
+            color,
+            -1  # filled
+        )
+
+        # Put text on top of that rectangle
+        cv2.putText(
+            img,
+            text,
+            (x1, y1 - 5),
+            font,
+            font_scale,
+            (255, 255, 255), # white text
+            thickness,
+            cv2.LINE_AA
+        )
+    
+    return img

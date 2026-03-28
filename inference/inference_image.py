@@ -2,12 +2,13 @@ import torch
 import numpy as np
 from PIL import Image
 import io
+import cv2
 from transforms import val_transform_infer
 import torchvision.transforms.functional as F
 from torchvision.utils import draw_bounding_boxes, save_image
 from .inference_utils import (
     device, post_proceesing_predictions, denormalize, 
-    IMAGENET_MEAN, IMAGENET_STD, BDD100K_CLASSES, trained_model
+    IMAGENET_MEAN, IMAGENET_STD, BDD100K_CLASSES, trained_model, draw_bbox
 )
 
 
@@ -46,8 +47,9 @@ def inference_single_image(image_tensor):
 
         # Draw bounding boxes
         image = denormalize(image_tensor[0], mean=np.array(IMAGENET_MEAN), std=np.array(IMAGENET_STD))
-        img_uint8 = (image * 255).to(torch.uint8)
+        #img_uint8 = (image * 255).to(torch.uint8)
 
+        """
         boxed_image = draw_bounding_boxes(
             image=img_uint8,
             boxes=preds["boxes"],
@@ -57,13 +59,24 @@ def inference_single_image(image_tensor):
         )
 
         boxed_image = F.resize(boxed_image, size=[720, 1280])
+        """
+
+        boxed_image = draw_bbox(
+                image=image,
+                boxes=preds["boxes"],
+                labels=preds["labels"],
+                scores=preds["scores"])
+
+        boxed_image = cv2.resize(boxed_image, (1280, 720))
+
         #final_image = boxed_image.float() / 255.0 
 
     return boxed_image
 
 def tensor_to_png_buffer(boxed_image):
     # Change the image with bbox to a numpy array
-    boxed_np = boxed_image.permute(1, 2, 0).cpu().numpy() # (H, W, C)
+    #boxed_np = boxed_image.permute(1, 2, 0).cpu().numpy() # (H, W, C)
+    boxed_np = cv2.cvtColor(boxed_image, cv2.COLOR_RGB2BGR) 
 
     # Convert result back to PIL for sending
     img = Image.fromarray(boxed_np)
