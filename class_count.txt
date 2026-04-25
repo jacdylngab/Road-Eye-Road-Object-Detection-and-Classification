@@ -1,0 +1,10 @@
+bus = 16502
+traffic light = 266032
+traffic_sign = 343882
+person = 129350
+bike = 10232
+truck = 42963
+motor = 4295
+car = 1021811
+train = 179
+rider = 6465

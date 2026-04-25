@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>ROAD EYE</title>
+        <link rel="stylesheet" href="/static/css/style.css">
+    </head>
+
+    <body>
+        <h1>ROAD EYE: OBJECT DETECTION AND CLASSIFICATION</h1>
+
+        <h2>Upload Video</h2>
+
+        <form method="POST" action="/upload" enctype="multipart/form-data">
+            <input type="file" name="video" accept="video/*">
+            <button type="submit">Upload</button>
+        </form>
+
+        <img id="result">
+
+        <p id="response"></p>
+
+        <script src="/static/js/script.js"></script>
+    </body>
+</html>

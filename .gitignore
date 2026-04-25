@@ -211,4 +211,9 @@ BDD100K Dataset/
 data/
 hymenoptera_data/
 inference_imgs/
-
+TEST/
+short list/
+bdd100k/
+Test Short List/
+runs/
+bdd100k_videos_test_00.zip

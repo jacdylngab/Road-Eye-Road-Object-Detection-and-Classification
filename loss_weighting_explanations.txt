@@ -1,0 +1,133 @@
+class_counts = torch.tensor([
+    16502, # bus
+    266032, # traffic light 
+    343882, # traffic sign
+    129350, # person
+    10232, # bike
+    42963, # truck
+    4295, # motor
+    1021811, # car
+    179, # train
+    6465 # rider
+], dtype=torch.float)
+
+🧠 1. Inverse Frequency (the core idea)
+🔹 Problem
+
+Your dataset is heavily imbalanced:
+
+car = 1,021,811
+train = 179
+
+Without fixing this, your model learns:
+
+“If I just predict car a lot, I’ll be mostly correct.”
+
+🔹 Solution: inverse frequency
+
+We assign weight:
+	​w_c = 1 / count_c
+
+So:
+    Big classes → small weight
+    Small classes → big weight
+
+🔍 Example with your data
+
+Let’s compare two classes:
+
+car:
+    w_car = 1 / 1021811 ≈ 0.000000978
+
+train:
+    w_train = 1 / 170 ≈ 0.00559
+
+👉 Train gets ~5700× more importance than car.
+
+⚖️ 2. Normalization (make numbers usable)
+
+Right now weights are tiny decimals — not ideal.
+
+So we rescale them:
+
+weights = weights / weights.min()
+
+This makes the smallest weight = 1.
+
+🔍 What happens?
+car (smallest weight) → becomes 1
+everything else scales relative to it
+
+So now:
+
+Class	Relative Weight
+car	1
+bus	~60
+bike	~100
+motor	~238
+train	~5700 🚨
+⚠️ Problem
+
+That 5700 is dangerous:
+
+gradients explode
+training unstable
+model may overfit to rare noise
+
+🧯 3. Softening the weights (VERY IMPORTANT)
+
+This is where you control the aggression of weighting.
+
+Instead of:
+
+    𝑤 = 1 / count
+
+We “soften” it.
+
+✅ Option A: Square root (BEST START)
+
+    w = 1 / sqrt(count)
+
+🔍 Why it works
+
+Square root reduces extremes:
+
+| Class | Count     | sqrt(count) | weight |
+| ----- | --------- | ----------- | ------ |
+| car   | 1,021,811 | ~1010       | small  |
+| train | 179       | ~13         | bigger |
+
+
+Now ratio is:
+
+	1010 / 13​ ≈ 77
+
+👉 Instead of 5700×, now only ~77×
+
+💡 Interpretation
+Still favors rare classes ✅
+Doesn’t go crazy ❌
+
+✅ Option B: Log scaling (even softer)
+
+    𝑤 = 1 / log(count + 1)
+
+
+This compresses even more.
+
+🧠 4. Big picture intuition
+
+Think of weighting like a volume knob 🎚️
+
+| Method            | Effect                     |
+| ----------------- | -------------------------- |
+| No weights        | model ignores rare classes |
+| Inverse (1/count) | VERY aggressive            |
+| sqrt(1/count)     | balanced ✅                 |
+| log(1/count)      | very gentle                |
+
+
+🎯 Final mental model
+    Inverse frequency → fairness
+    Normalization → stability
+    Softening → realism

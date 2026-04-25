@@ -838,6 +838,39 @@ class FCOSHead(nn.Module):
         num_positive = max(float(num_positive), 1.0) # Helps avoid division by 0 when doing loss calculations
 
          # -- Classification loss (all points, fg + bg) ------------------------------------
+        
+        # Implentation of Loss Weighting.
+
+        # Put counts in a tensor
+        class_counts = torch.tensor([
+             16502, # bus
+             266032, # traffic light 
+             343882, # traffic sign
+             129350, # person
+             10232, # bike
+             42963, # truck
+             4295, # motor
+             1021811, # car
+             179, # train
+             6465 # rider
+        ], dtype=torch.float)
+
+
+        # Invverse frequency
+        #weights = 1.0 / torch.sqrt(class_counts) # This helps in stabilizing training. Like huge weights might cause training to explode
+        weights = 1.0 / torch.log(class_counts + 1) # This helps in stabilizing training. Like huge weights might cause training to explode
+
+        # Normalization
+        weights = weights / weights.min() # This changes the small decimals into numbers that are useful like 1, 3, 10.
+
+        # Clamp the weights to for stable training
+        weights = torch.clamp(weights, max=10.0)
+
+        # Move to the correct device
+        weights = weights.to(flatten_classification_scores.device)
+
+        weights = weights.view(1, -1) # ensure correct broadcasting (This is safer)
+        
         # Convert target labels shape to match the input shape and change that to one hot code
         target_one_hot = F.one_hot(
             flatten_label_targets.clamp(max=self.num_classes - 1),
@@ -854,8 +887,15 @@ class FCOSHead(nn.Module):
             targets=target_one_hot, 
             gamma=2.0, # How hard we downweight easy examples
             alpha=0.25, # Balance positives vs negatives
-            reduction="sum"
+            #reduction="sum"
+            reduction="none"
         )
+
+        # Apply the weights
+        loss_classification = loss_classification * weights
+
+        # Add all the losses together
+        loss_classification = loss_classification.sum()
 
         # Normalize the classification loss by the number of positives
         loss_classification /= num_positive

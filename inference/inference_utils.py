@@ -22,9 +22,8 @@ IMAGENET_STD:  List[float] = [0.229, 0.224, 0.225]
 IMAGES_TEST = "BDD100K Dataset/bdd100k_images_100k/100k/test"
 LABELS_TEST = "BDD100K Dataset/bdd100k_labels/100k/test"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent # This will point to the project root (parent folder of inference/)
-BEST_MODEL_PATH = PROJECT_ROOT / "best_model.pt"
-#BEST_MODEL_PATH = PROJECT_ROOT / "best_model3.pt"
-#BEST_MODEL_PATH = PROJECT_ROOT / "best_model4.pt"
+#BEST_MODEL_PATH = PROJECT_ROOT / "best_model.pt"
+BEST_MODEL_PATH = PROJECT_ROOT / "best_model_best.pt"
 INFERENCE_FOLDER_PATH = Path("inference_imgs") # Folder to store the inference pictures.
 METRICS_OUTPUT = Path("metrics_data.txt")
 
@@ -39,6 +38,19 @@ BDD100K_CLASSES: Dict[int, str] = {
             7: "car",
             8: "train",
             9: "rider"
+}
+
+COLORS = {
+    0: (0, 140, 255),    # bus → orange (large public vehicle)
+    1: (0, 255, 0),      # traffic light → green
+    2: (0, 255, 255),    # traffic sign → yellow
+    3: (0, 0, 255),      # person → red (high importance)
+    4: (255, 255, 0),    # bike → cyan
+    5: (255, 0, 255),    # truck → magenta (heavy vehicle)
+    6: (255, 128, 0),    # motor → light blue
+    7: (255, 0, 0),      # car → blue (standard vehicle color)
+    8: (128, 0, 128),    # train → purple (distinct)
+    9: (80, 80, 255),    # rider → soft red (related to person)
 }
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -387,9 +399,19 @@ def trained_model():
 
     return model
 
-def get_color(idx):
-    np.random.seed(idx)
-    return tuple(np.random.randint(0, 255, 3).tolist())
+
+def get_color(class_id):
+    return COLORS[class_id]
+
+def get_text_color(bg_color):
+    # bg_color is BGR
+    b, g, r = bg_color
+
+    # Compute brightness (perceived luminance)
+    brightness = 0.299 * r + 0.587 * g + 0.114 * b
+
+    # If background is bright → use black text
+    return (0, 0, 0) if brightness > 120 else (255, 255, 255)
 
 def draw_bbox(image, boxes, labels, scores, class_names=BDD100K_CLASSES):
     img = image.cpu().numpy().transpose(1, 2, 0)
@@ -409,27 +431,36 @@ def draw_bbox(image, boxes, labels, scores, class_names=BDD100K_CLASSES):
 
         class_id = label.item()
         class_name = class_names.get(class_id, "unknown")
-        text = f"{class_name}: {score:.2f}"
+        text = f"{class_name.upper()}: {score:.2f}"
 
         # get the color
         color = get_color(class_id)
 
         # Draw bounding box
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        h, w = img.shape[:2]
+        thickness = max(1, int(0.002 * (h + w) / 2))
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
 
         # --- TEXT SETTINGS ---
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.4
-        thickness = 1
+        font_scale = thickness / 3
+        font_thickness = max(thickness - 1, 1)
+        text_color = get_text_color(color)
 
         # Get text size
-        (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+        (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, font_thickness)
+
+        # Add padding
+        pad = 3
+
+        # Make sure it doesn't go outside the image
+        y1_text = max(y1, text_h + 2 * pad)
 
         # Draw filled rectangle ABOVE the box
         cv2.rectangle(
             img, 
-            (x1, y1 - text_h - 5),
-            (x1 + text_w, y1),
+            (x1, y1_text - text_h - 2 * pad),
+            (x1 + text_w + 2 * pad, y1_text),
             color,
             -1  # filled
         )
@@ -438,11 +469,11 @@ def draw_bbox(image, boxes, labels, scores, class_names=BDD100K_CLASSES):
         cv2.putText(
             img,
             text,
-            (x1, y1 - 5),
+            (x1 + pad, y1_text - pad),
             font,
             font_scale,
-            (255, 255, 255), # white text
-            thickness,
+            text_color,
+            font_thickness,
             cv2.LINE_AA
         )
     
