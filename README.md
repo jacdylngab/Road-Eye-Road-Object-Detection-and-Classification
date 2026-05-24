@@ -60,12 +60,10 @@ Both solutions improved performance but did not fully resolve the imbalance — 
 ---
 
 ## Results
-
-<!-- TODO: Add example detection images below -->
-<!-- Example:
-![Detection example 1](images/detection_example_1.jpg)
-![Detection example 2](images/detection_example_2.jpg)
--->
+Example:
+![Detection example 1](images/predicted_image_16419.png)
+![Detection example 2](images/predicted_image_519.png)
+![Detection example 2](images/predicted_image_18306.png)
 
 ---
 
