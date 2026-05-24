@@ -61,6 +61,7 @@ Both solutions improved performance but did not fully resolve the imbalance — 
 
 ## Results
 Example:
+
 ![Detection example 1](images/predicted_image_16419.png)
 ![Detection example 2](images/predicted_image_519.png)
 ![Detection example 2](images/predicted_image_18306.png)
